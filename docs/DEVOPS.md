@@ -58,8 +58,28 @@ docker cp backups/gearflow-<时间戳>.sqlite infra-server-1:/data/gearflow.sqli
 docker compose -f infra/docker-compose.prod.yml start server
 ```
 
+## 接入远程仓库
+
+本地仓库已初始化（分支 `main`），推到 GitHub 或 Gitee 后 CI 就会自动跑：
+
+```bash
+git remote add origin git@github.com:<账号>/gearflow.git   # 或 https://gitee.com/<账号>/gearflow.git
+git push -u origin main
+```
+
+推 GitHub 后要在 `Settings → Secrets and variables → Actions` 里加三个 secret，Deploy 流水线才能连服务器：
+
+| Secret | 值 |
+| --- | --- |
+| `DEPLOY_SSH_KEY` | 部署私钥全文（本机 `artifacts/deploy_key`） |
+| `DEPLOY_HOST` | `182.92.126.12` |
+| `DEPLOY_USER` | `root` |
+
+若改用 Gitee，`.github/workflows/*.yml` 不被识别，需要改写成 Gitee Go 的 `.workflow/*.yml` 格式，语法差别较大，二者不要混放。
+
 ## 已知局限
 
 - CI 只覆盖后端单元测试，前端与端到端用例（Playwright）尚未进流水线，因为 runner 上装浏览器耗时较长；
 - 备份只留在本机 `backups/`，未同步到 OSS，磁盘损坏会一起丢，后续可加 `ossutil cp` 到对象存储；
-- 没有集中式日志与指标，排障仍靠 `docker logs`，规模再大就需要 Loki / Prometheus 这类组件。
+- 没有集中式日志与指标，排障仍靠 `docker logs`，规模再大就需要 Loki / Prometheus 这类组件；
+- 发布靠 tar 包覆盖而非 git checkout，服务器上没有 `.git`，好处是省内存，代价是无法在服务器上 `git log` 追溯版本。

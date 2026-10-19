@@ -25,6 +25,27 @@ $bundle = 'artifacts\release.tar.gz'
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
+# 返回 HTTP 状态码，失败返回 0；不依赖 curl.exe，避免 PowerShell 把原生 stderr 当错误
+function Get-HttpStatus([string]$Url, [bool]$IgnoreCert) {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  if ($IgnoreCert) {
+    [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+  }
+  try {
+    $req = [Net.HttpWebRequest]::Create($Url)
+    $req.Timeout = 15000
+    $resp = $req.GetResponse()
+    $code = [int]$resp.StatusCode
+    $resp.Close()
+    return $code
+  } catch {
+    if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode }
+    return 0
+  } finally {
+    [Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+  }
+}
+
 Step '1/7 后端编译'
 npm run build --workspace=@gearflow/server
 if ($LASTEXITCODE -ne 0) { throw '后端编译失败' }
@@ -64,6 +85,7 @@ $remote = @'
 set -e
 cd /opt/gearflow
 tar -xzf /opt/gearflow-deploy.tar.gz
+chmod +x infra/ops/*.sh infra/*.sh 2>/dev/null || true
 docker compose -f infra/docker-compose.prod.yml up -d --build
 '@
 & $ssh -i $KeyPath "${User}@${Host_}" $remote
@@ -73,7 +95,15 @@ Step '7/7 冒烟验证'
 Start-Sleep -Seconds 6
 $health = & $ssh -i $KeyPath "${User}@${Host_}" "curl -fsS -m 10 http://127.0.0.1/api/health"
 Write-Host "    本机健康检查: $health"
-$code = (& curl.exe -sS -o NUL -w '%{http_code}' --max-time 15 https://timomo.store/ 2>&1)
-Write-Host "    外网 HTTPS: $code"
+
+$domainCode = Get-HttpStatus 'https://timomo.store/' $false
+if ($domainCode -eq 200) {
+  Write-Host '    外网 HTTPS: 200'
+} else {
+  # 备案审核期间域名会被拦截，这时回退到公网 IP 直连检查
+  $ipCode = Get-HttpStatus "https://${Host_}/" $true
+  Write-Host "    域名 HTTPS: $domainCode（备案拦截中，属预期）  IP 直连: $ipCode"
+  if ($ipCode -ne 200) { throw "外网冒烟失败：域名 $domainCode / IP $ipCode" }
+}
 
 Write-Host "`n发布完成。" -ForegroundColor Green
