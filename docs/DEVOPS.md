@@ -39,7 +39,7 @@
 
 1. 改一行前端文案，`git commit`；
 2. 打开 Actions 页面，展示 CI 流水线由红转绿（构建 + 测试）；
-3. 本地执行 `pwsh scripts/release.ps1`，展示"测试 → 构建 → 上传 → 发布 → 冒烟"七个阶段；
+3. 本地执行 `powershell -ExecutionPolicy Bypass -File scripts\release.ps1`，展示"测试 → 构建 → 上传 → 发布 → 冒烟"七个阶段；
 4. 浏览器刷新，页面已更新；
 5. 演示自愈：`docker stop infra-server-1`，等 5 分钟，巡检自动拉起；
 6. 演示备份：`sudo /opt/gearflow/infra/ops/backup.sh`，`ls -lh /opt/gearflow/backups/`。
@@ -50,7 +50,7 @@
 
 ```bash
 # 只回滚代码：重新检出上一个提交，再执行 release
-git checkout <上一个提交> && pwsh scripts/release.ps1
+git checkout <上一个提交> && powershell -ExecutionPolicy Bypass -File scripts\release.ps1
 
 # 只回滚数据：停服务，用备份覆盖卷内数据库，再启动
 docker compose -f infra/docker-compose.prod.yml stop server
