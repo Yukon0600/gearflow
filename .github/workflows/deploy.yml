@@ -1,0 +1,60 @@
+name: Deploy
+
+# 手动触发：Actions → Deploy → Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 要部署的分支或标签
+        default: main
+        required: true
+
+jobs:
+  deploy:
+    name: 发布到 ECS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build --workspace=@gearflow/server
+      - run: node --test apps/server/test/*.test.cjs
+      - run: npm run build --workspace=@gearflow/customer-web
+
+      - name: 配置 SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: 打包（排除依赖与数据）
+        run: |
+          tar -czf gearflow.tgz \
+            --exclude=node_modules --exclude=.git --exclude=artifacts \
+            --exclude=backups --exclude='*.sqlite*' \
+            package.json package-lock.json apps packages infra
+
+      - name: 上传并滚动发布
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          scp gearflow.tgz "$USER@$HOST:/opt/gearflow-deploy.tar.gz"
+          ssh "$USER@$HOST" '
+            set -e
+            cd /opt/gearflow
+            tar -xzf /opt/gearflow-deploy.tar.gz
+            docker compose -f infra/docker-compose.prod.yml up -d --build
+            sleep 6
+            curl -fsS -m 10 http://127.0.0.1/api/health
+          '
+
+      - name: 外网冒烟
+        run: curl -fsS -m 15 -o /dev/null -w 'https %{http_code}\n' https://timomo.store/ || true

@@ -1,0 +1,26 @@
+{
+  "name": "gearflow-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/admin-web",
+    "apps/customer-web",
+    "apps/server",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n client,server \"npm run dev:web\" \"npm run dev:server\"",
+    "dev:web": "npm run dev --workspace=@gearflow/customer-web -- --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:server": "npm run dev --workspace=@gearflow/server",
+    "build": "npm run build --workspaces --if-present",
+    "start:server": "npm run start --workspace=@gearflow/server",
+    "preview": "npm run preview --workspace=@gearflow/customer-web",
+    "dev:admin": "npm run dev --workspace=@gearflow/admin-web -- --host 127.0.0.1 --port 5174 --strictPort",
+    "test:server": "npm run build --workspace=@gearflow/server && node --test apps/server/test/*.test.cjs",
+    "test:e2e": "npm run build --workspace=@gearflow/server && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "concurrently": "^9.2.0"
+  }
+}

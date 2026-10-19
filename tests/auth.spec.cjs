@@ -1,0 +1,31 @@
+const { test, expect } = require('@playwright/test');
+
+test('登录校验、持久会话、退出与接口保护', async ({page}) => {
+  expect((await page.request.get('/api/workspace')).status()).toBe(401);
+  expect((await page.request.post('/api/products',{data:{}})).status()).toBe(401);
+  await page.goto('/');
+  await expect(page.getByRole('heading',{name:'登录你的工作区'})).toBeVisible();
+  await page.getByLabel('账号',{exact:true}).fill('admin');
+  await page.getByLabel('密码',{exact:true}).fill('wrong-password');
+  await page.getByRole('button',{name:'登录工作区',exact:true}).click();
+  await expect(page.getByRole('alert')).toHaveText('账号或密码不正确');
+  await page.getByLabel('密码',{exact:true}).fill('GearFlow@2026');
+  await page.getByRole('button',{name:'显示密码',exact:true}).click();
+  await expect(page.getByLabel('密码',{exact:true})).toHaveAttribute('type','text');
+  await page.getByRole('button',{name:'登录工作区',exact:true}).click();
+  await expect(page.getByText('服务器已连接')).toBeVisible();
+  const cookies=await page.context().cookies();
+  expect(cookies.find(c=>c.name==='gearflow_session').httpOnly).toBe(true);
+  await page.reload();
+  await expect(page.getByText('服务器已连接')).toBeVisible();
+  const snapshot=await (await page.request.get('/api/workspace')).json();
+  for(const category of snapshot.categories) expect(snapshot.products.filter(p=>p.category===category).length).toBeGreaterThanOrEqual(4);
+  expect(snapshot.partners.filter(p=>p.kind==='customer').length).toBeGreaterThanOrEqual(6);
+  expect(snapshot.partners.filter(p=>p.kind==='supplier').length).toBeGreaterThanOrEqual(6);
+  await page.getByRole('button',{name:'退出登录',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'登录你的工作区'})).toBeVisible();
+  expect((await page.request.get('/api/workspace')).status()).toBe(401);
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
+  await page.screenshot({path:'artifacts/login-mobile.png',animations:'disabled'});
+});

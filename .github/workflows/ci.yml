@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: 构建与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 编译后端
+        run: npm run build --workspace=@gearflow/server
+
+      - name: 后端单元测试
+        run: node --test apps/server/test/*.test.cjs
+
+      - name: 构建前端
+        run: npm run build --workspace=@gearflow/customer-web
+
+      - name: 上传前端产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-web-dist
+          path: apps/customer-web/dist
+          retention-days: 7
+
+      - name: 校验生产配置
+        run: |
+          docker compose -f infra/docker-compose.prod.yml config --quiet
+          echo "compose 文件语法正常"

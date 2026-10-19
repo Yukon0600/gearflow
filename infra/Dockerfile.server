@@ -1,0 +1,12 @@
+FROM node:24-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/server/package.json apps/server/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN npm ci --omit=dev
+COPY apps/server/dist apps/server/dist
+COPY packages/shared packages/shared
+RUN mkdir -p /data
+ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 GEARFLOW_DB_PATH=/data/gearflow.sqlite
+EXPOSE 3000
+CMD ["node", "apps/server/dist/main.js"]

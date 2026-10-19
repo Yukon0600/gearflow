@@ -1,0 +1,42 @@
+{
+  "folders": [
+    {
+      "name": "工作区配置",
+      "path": "."
+    },
+    {
+      "name": "Web 管理端",
+      "path": "apps/admin-web"
+    },
+    {
+      "name": "服务器端",
+      "path": "apps/server"
+    },
+    {
+      "name": "移动端（预留）",
+      "path": "apps/mobile"
+    },
+    {
+      "name": "公共模块",
+      "path": "packages/shared"
+    },
+    {
+      "name": "项目文档",
+      "path": "docs"
+    },
+    {
+      "name": "部署配置",
+      "path": "infra"
+    },
+    {
+      "name": "客户进销存业务端",
+      "path": "apps/customer-web"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/dist": true
+    }
+  }
+}

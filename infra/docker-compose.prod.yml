@@ -1,0 +1,43 @@
+# 生产 compose：HTTPS + 预构建前端。
+# 用法：docker compose -f infra/docker-compose.prod.yml up -d --build
+# 证书目录 ../certs 由 acme.sh 安装（fullchain.pem / privkey.pem）。
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.server
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      GEARFLOW_DB_PATH: /data/gearflow.sqlite
+      GEARFLOW_SECURE_COOKIE: ${GEARFLOW_SECURE_COOKIE:-1}
+    volumes:
+      - gearflow-data:/data
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web.prebuilt
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:80"
+    volumes:
+      - ../certs:/etc/nginx/certs:ro
+      - ../certbot-www:/var/www/certbot:ro
+
+volumes:
+  gearflow-data:

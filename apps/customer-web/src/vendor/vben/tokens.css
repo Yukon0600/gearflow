@@ -1,0 +1,10 @@
+/* Adapted from Vben Admin dark design tokens (MIT, see vendor/vben/LICENSE). */
+:root {
+  --gf-canvas: hsl(220 13.06% 9%);
+  --gf-surface: hsl(222.34 10.43% 12.27%);
+  --gf-surface-raised: hsl(240 3.7% 15.9%);
+  --gf-line: hsl(240 3.7% 22%);
+  --gf-text: hsl(0 0% 95%);
+  --gf-secondary: hsl(240 5% 64.9%);
+  --gf-primary: #b4c5f8;
+}

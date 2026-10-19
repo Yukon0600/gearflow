@@ -1,0 +1,11 @@
+/* Change only this multiplier to resize every non-circular corner. */
+:root {
+  --radius-scale: 1;
+  --radius-xs: calc(4px * var(--radius-scale));
+  --radius-sm: calc(6px * var(--radius-scale));
+  --radius-md: calc(10px * var(--radius-scale));
+  --radius-lg: calc(14px * var(--radius-scale));
+  --radius-xl: calc(20px * var(--radius-scale));
+  --font-ui: 'Inter Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-code: 'Inter Variable', 'Noto Sans SC Variable', sans-serif;
+}

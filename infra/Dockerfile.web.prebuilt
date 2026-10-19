@@ -1,0 +1,7 @@
+# 低带宽/低内存部署用：复用本地已构建的 apps/customer-web/dist，
+# 避免在服务器上 npm ci + vite build（2 GB 机器容易 OOM，3 Mbps 带宽拉依赖很慢）。
+# 用法：把 docker-compose.yml 里 web 的 dockerfile 指向本文件。
+FROM nginx:1.27-alpine
+COPY infra/nginx.https.conf /etc/nginx/conf.d/default.conf
+COPY apps/customer-web/dist /usr/share/nginx/html
+EXPOSE 80 443
