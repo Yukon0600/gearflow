@@ -34,7 +34,7 @@ function expired() { user.value = null; password.value = ''; error.value = '登�
 
 <template>
   <div v-if="checking" class="auth-check" role="status"><RefreshCw class="spin" :size="22"/>正在连接工作区…</div>
-  <App v-else-if="user" @logout="logout" @session-expired="expired"/>
+  <App v-else-if="user" :user="user" @logout="logout" @session-expired="expired"/>
   <div v-else class="login-page">
     <header class="login-header"><a href="#" class="login-brand"><Layers :size="25"/><b>GEAR<span>FLOW</span></b></a><ThemePicker/></header>
     <main class="login-main">

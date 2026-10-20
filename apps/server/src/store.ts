@@ -108,6 +108,107 @@ export class Store {
     };
   }
 
+  /** 经营报表：按天汇总销售/采购、毛利、商品排行与分类占比。 */
+  report(days = 30) {
+    const span = Math.min(Math.max(Number(days) || 30, 1), 365);
+    const now = Date.now();
+    const fromMs = now - (span - 1) * 86400000;
+    const fromKey = new Date(fromMs).toISOString().slice(0, 10);
+
+    const rows = this.db.prepare(`
+      SELECT o.createdAt AS createdAt, o.type AS type, o.number AS number,
+             l.quantity AS quantity, l.unitPrice AS unitPrice,
+             p.id AS productId, p.name AS name, p.category AS category, p.cost AS cost
+      FROM order_lines l
+      JOIN orders o ON o.id = l.orderId
+      JOIN products p ON p.id = l.productId
+      WHERE o.createdAt >= ?
+    `).all(fromKey) as any[];
+
+    let salesTotal = 0;
+    let purchaseTotal = 0;
+    let grossProfit = 0;
+    const salesOrders = new Set<string>();
+    const purchaseOrders = new Set<string>();
+    const byDay = new Map<string, { sales: number; purchase: number }>();
+    const byProduct = new Map<string, { id: string; name: string; qty: number; amount: number; profit: number }>();
+    const byCategory = new Map<string, number>();
+
+    for (const r of rows) {
+      const day = String(r.createdAt).slice(0, 10);
+      const qty = Number(r.quantity);
+      const unit = Number(r.unitPrice);
+      const amount = qty * unit;
+      const bucket = byDay.get(day) || { sales: 0, purchase: 0 };
+
+      if (r.type === 'sale') {
+        salesTotal += amount;
+        salesOrders.add(String(r.number));
+        grossProfit += (unit - Number(r.cost)) * qty;
+        bucket.sales += amount;
+
+        const p = byProduct.get(String(r.productId)) ||
+          { id: String(r.productId), name: String(r.name), qty: 0, amount: 0, profit: 0 };
+        p.qty += qty;
+        p.amount += amount;
+        p.profit += (unit - Number(r.cost)) * qty;
+        byProduct.set(String(r.productId), p);
+
+        const cat = String(r.category || '未分类');
+        byCategory.set(cat, (byCategory.get(cat) || 0) + amount);
+      } else {
+        purchaseTotal += amount;
+        purchaseOrders.add(String(r.number));
+        bucket.purchase += amount;
+      }
+      byDay.set(day, bucket);
+    }
+
+    const trend: { date: string; sales: number; purchase: number }[] = [];
+    for (let i = 0; i < span; i += 1) {
+      const key = new Date(fromMs + i * 86400000).toISOString().slice(0, 10);
+      const b = byDay.get(key) || { sales: 0, purchase: 0 };
+      trend.push({ date: key, sales: b.sales, purchase: b.purchase });
+    }
+
+    const topProducts = Array.from(byProduct.values())
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 8);
+
+    const categories = Array.from(byCategory.entries())
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+    const categoryTop = categories.slice(0, 6);
+    const restAmount = categories.slice(6).reduce((s, c) => s + c.amount, 0);
+    if (restAmount > 0) categoryTop.push({ name: '其他', amount: restAmount });
+    const categoryShare = categoryTop.map((c) => ({
+      ...c,
+      ratio: salesTotal ? Math.round((c.amount / salesTotal) * 1000) / 10 : 0,
+    }));
+
+    const inventory = this.mobileStock();
+
+    return {
+      days: span,
+      from: fromKey,
+      to: new Date(now).toISOString().slice(0, 10),
+      salesTotal,
+      purchaseTotal,
+      grossProfit,
+      grossMarginBps: salesTotal ? Math.round((grossProfit / salesTotal) * 10000) : 0,
+      orderCount: salesOrders.size + purchaseOrders.size,
+      salesOrderCount: salesOrders.size,
+      purchaseOrderCount: purchaseOrders.size,
+      avgOrder: salesOrders.size ? Math.round(salesTotal / salesOrders.size) : 0,
+      stockValue: Number((this.db.prepare('SELECT COALESCE(SUM(stock*cost),0) AS v FROM products').get() as any).v),
+      lowCount: inventory.lowCount,
+      productCount: inventory.total,
+      trend,
+      topProducts,
+      categoryShare,
+    };
+  }
+
   /** 移动端首页概览：库存价值、今日出入库、低库存与最近流水。 */
   mobileSummary() {
     const rows = this.db.prepare('SELECT id, sku, name, brand, stock, threshold, cost, price FROM products').all() as any[];

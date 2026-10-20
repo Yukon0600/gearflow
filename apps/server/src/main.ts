@@ -1,11 +1,12 @@
 import 'reflect-metadata';
-import { Body, Controller, Get, Module, Post, Patch, Param, Query, NotFoundException } from '@nestjs/common';
+import { Body, Controller, Get, Module, Post, Patch, Delete, Param, Query, NotFoundException, BadRequestException, ConflictException, Req } from '@nestjs/common';
 import { resolve } from 'node:path';
 import { Store } from './store';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { API_PREFIX } from '@gearflow/shared';
-import { Auth } from './auth';
+import { Auth, ROLE_LABEL, ROLES, type Role } from './auth';
+import { canAccess, abilities } from './permissions';
 
 @Controller('health')
 class HealthController {
@@ -16,6 +17,7 @@ class HealthController {
 }
 
 const store = new Store(process.env.GEARFLOW_DB_PATH || resolve(__dirname, '../data/gearflow.sqlite'));
+const auth = new Auth(store.db);
 
 @Controller()
 class InventoryController {
@@ -43,12 +45,58 @@ class InventoryController {
   @Patch('services/:id/status') serviceStatus(@Param('id') id:string,@Body() body:any) { return store.workforce.transitionService(id,body?.status); }
 }
 
-@Module({ controllers: [HealthController, InventoryController] })
+@Controller('users')
+class UsersController {
+  @Get()
+  list() {
+    return {
+      items: auth.list(),
+      roles: ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] })),
+    };
+  }
+
+  @Post()
+  create(@Body() body: any) {
+    try {
+      return auth.create(body?.username, body?.password, body?.role);
+    } catch (error: any) {
+      throw new BadRequestException(error?.message || '创建账号失败');
+    }
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() body: any) {
+    try {
+      return auth.update(id, { role: body?.role, password: body?.password });
+    } catch (error: any) {
+      throw new BadRequestException(error?.message || '更新账号失败');
+    }
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string, @Req() req: any) {
+    try {
+      auth.remove(id, String(req.user?.username || ''));
+      return { ok: true };
+    } catch (error: any) {
+      throw new ConflictException(error?.message || '删除账号失败');
+    }
+  }
+}
+
+@Controller('reports')
+class ReportsController {
+  @Get('overview')
+  overview(@Query('days') days?: string) {
+    return store.report(Number(days) || 30);
+  }
+}
+
+@Module({ controllers: [HealthController, InventoryController, UsersController, ReportsController] })
 class AppModule {}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  const auth = new Auth(store.db);
   const attempts = new Map<string, { count: number; until: number }>();
   // Register after the JSON parser and before controllers, so every business API is protected.
   app.useBodyParser('json', { limit: '1mb' });
@@ -76,7 +124,8 @@ async function bootstrap() {
     }
     const cookieToken = (req.headers.cookie || '').split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('gearflow_session='))?.slice(17) || '';
     // 小程序与鸿蒙没有浏览器 Cookie 机制，额外支持 Authorization: Bearer <token>
-    const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '') || cookieToken;    const cookie = (value: string, age: number) => res.setHeader('Set-Cookie', `gearflow_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${process.env.GEARFLOW_SECURE_COOKIE === '1' ? '; Secure' : ''}`);
+    const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '') || cookieToken;
+    const cookie = (value: string, age: number) => res.setHeader('Set-Cookie', `gearflow_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${process.env.GEARFLOW_SECURE_COOKIE === '1' ? '; Secure' : ''}`);
     res.setHeader('Cache-Control', 'no-store');
     if (path === '/api/auth/login' && req.method === 'POST') {
       const now = Date.now();
@@ -92,7 +141,12 @@ async function bootstrap() {
     if (path === '/api/auth/logout' && req.method === 'POST') { auth.logout(token); cookie('', 0); return res.json({ ok: true }); }
     const user = auth.user(token);
     if (!user) return res.status(401).json({ message: '请先登录，或登录已过期' });
-    if (path === '/api/auth/me' && req.method === 'GET') return res.json({ user });
+    if (path === '/api/auth/me' && req.method === 'GET') return res.json({ user, abilities: abilities(user.role) });
+    // 角色鉴权：不同岗位能做的事不同，越权直接 403
+    if (!canAccess(user.role, req.method, path)) {
+      return res.status(403).json({ message: `当前为${ROLE_LABEL[user.role]}，没有该操作权限` });
+    }
+    (req as any).user = user;
     next();
   });
   app.setGlobalPrefix(API_PREFIX);

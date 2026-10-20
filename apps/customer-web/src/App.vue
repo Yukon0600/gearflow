@@ -3,14 +3,21 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { usePagination } from './vendor/vben/use-pagination'
 import BusinessPanel from './components/BusinessPanel.vue'
 import WorkforcePanel from './components/WorkforcePanel.vue'
+import ReportsPanel from './components/ReportsPanel.vue'
+import UsersPanel from './components/UsersPanel.vue'
 import ThemePicker from './components/ThemePicker.vue'
 import AdminLayout from './vendor/soybean/libs/admin-layout/index.vue'
 import { Boxes, ArrowDownLeft, ArrowUpRight, ArrowRight, Plus, Search, ChevronDown, ChevronLeft, ChevronRight, Download, SlidersHorizontal, Cpu, CircuitBoard, MemoryStick, HardDrive, Mouse, Zap, Monitor, X, Check, RefreshCw, Package, Layers, Activity, Command, Menu, CircleAlert, ExternalLink, LayoutGrid, List, Pencil, ArrowDownUp, Users, ClipboardCheck, FileText, Save } from 'lucide-vue-next'
 
 const draftId=ref(null), orderTab=ref('posted'), changed=ref([])
 const emit = defineEmits(['logout', 'session-expired'])
+const props = defineProps({ user: { type: Object, default: () => ({ username: '', role: 'clerk' }) } })
+const ROLE_RANK = { clerk: 1, manager: 2, admin: 3 }
+const meRole = computed(() => props.user?.role || 'clerk')
+const navVisible = computed(() => nav.filter(n => !n.minRole || ROLE_RANK[meRole.value] >= ROLE_RANK[n.minRole]))
+const canEditCatalog = computed(() => ROLE_RANK[meRole.value] >= ROLE_RANK.manager)
 const view=ref('table'), sort=ref('newest'), pageSize=ref(10)
-const nav = [ {id:'inventory',label:'商品与库存',icon:Boxes}, {id:'purchase',label:'采购入库',icon:ArrowDownLeft}, {id:'sale',label:'销售出库',icon:ArrowUpRight}, {id:'ledger',label:'库存流水',icon:Activity}, {id:'partners',label:'客户与供应商',icon:Users}, {id:'stocktake',label:'库存盘点',icon:ClipboardCheck}, {id:'employees',label:'员工档案',icon:Users}, {id:'services',label:'装机服务',icon:Cpu}, {id:'commissions',label:'员工提成',icon:FileText} ]
+const nav = [ {id:'inventory',label:'商品与库存',icon:Boxes}, {id:'purchase',label:'采购入库',icon:ArrowDownLeft}, {id:'sale',label:'销售出库',icon:ArrowUpRight}, {id:'ledger',label:'库存流水',icon:Activity}, {id:'partners',label:'客户与供应商',icon:Users}, {id:'stocktake',label:'库存盘点',icon:ClipboardCheck}, {id:'employees',label:'员工档案',icon:Users}, {id:'services',label:'装机服务',icon:Cpu}, {id:'commissions',label:'员工提成',icon:FileText}, {id:'reports',label:'经营报表',icon:Activity,minRole:'manager'}, {id:'users',label:'用户权限',icon:Users,minRole:'admin'} ]
 const isMobile=ref(window.innerWidth <= 700), collapsed=ref(false)
 const siderCollapse=computed({get:()=>isMobile.value?!mobile.value:collapsed.value,set:v=>{if(isMobile.value)mobile.value=!v;else collapsed.value=v}})
 function resize(){isMobile.value=window.innerWidth<=700}
@@ -48,8 +55,9 @@ const partnerOptions=computed(()=>(data.value.partners||[]).filter(p=>p.kind===(
 const title=computed(()=>nav.find(n=>n.id===page.value).label)
 const amount=computed(()=>(order.value.lines||[]).reduce((s,l)=>s+(Number(l.quantity)||0)*Math.round((Number(l.price)||0)*100),0))
 const detailMovements=computed(()=>selected.value?data.value.movements.filter(m=>m.productId===selected.value.id):[])
-async function api(path,body,method='POST') {
-  const response=await fetch(`/api/${path}`,body?{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})
+async function api(path,body,method) {
+  const init={method:method||(body?'POST':'GET')};if(body){init.headers={'Content-Type':'application/json'};init.body=JSON.stringify(body)}
+  const response=await fetch(`/api/${path}`,init)
   const result=await response.json()
   if(response.status===401) { emit('session-expired'); throw new Error('登录已过期，请重新登录') }
   if(!response.ok) throw new Error(Array.isArray(result.message)?result.message.join('；'):result.message||'请求失败')
@@ -58,7 +66,7 @@ async function api(path,body,method='POST') {
 async function load(){loading.value=true;error.value='';try{const fresh=await api('workspace');changed.value=fresh.products.filter(p=>{const old=data.value.products.find(o=>o.id===p.id);return old&&old.stock!==p.stock}).map(p=>p.id);data.value=fresh;connection.value=true}catch(e){error.value='无法连接服务器，请确认服务已启动后重试。';connection.value=false}finally{loading.value=false}}
 function notify(s){toast.value=s;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',4500)}
 function navigate(id){page.value=id;search.value='';mobile.value=false}
-async function open(type,p){draftId.value=null;modal.value=type;formError.value='';selected.value=p||null;if(type==='edit')product.value={...p,cost:p.cost/100,price:p.price/100};if(type==='product')product.value={name:'',sku:'',brand:'',category:'处理器',cost:'',price:'',threshold:5};if(type==='purchase'||type==='sale'){order.value={partner:'',note:'',employeeId:'',lines:[{productId:p?.id||'',quantity:1,price:p?(type==='purchase'?p.cost:p.price)/100:''}]}}await nextTick();dialog.value.showModal()}
+async function open(type,p){if((type==='edit'||type==='product')&&!canEditCatalog.value){notify('当前角色没有修改商品资料的权限');return}draftId.value=null;modal.value=type;formError.value='';selected.value=p||null;if(type==='edit')product.value={...p,cost:p.cost/100,price:p.price/100};if(type==='product')product.value={name:'',sku:'',brand:'',category:'处理器',cost:'',price:'',threshold:5};if(type==='purchase'||type==='sale'){order.value={partner:'',note:'',employeeId:'',lines:[{productId:p?.id||'',quantity:1,price:p?(type==='purchase'?p.cost:p.price)/100:''}]}}await nextTick();dialog.value.showModal()}
 function close(){if(!saving.value){dialog.value.close();modal.value=''}}
 function updateLine(line){const p=data.value.products.find(p=>p.id===line.productId);line.price=p?(modal.value==='purchase'?p.cost:p.price)/100:''}
 function orderBody(){return {type:modal.value,partner:order.value.partner,note:order.value.note,employeeId:order.value.employeeId||'',lines:order.value.lines.map(l=>({productId:l.productId,quantity:Number(l.quantity),unitPrice:Math.round(Number(l.price)*100)}))}}
@@ -81,7 +89,7 @@ onMounted(load)
    <a class="brand" href="#" @click.prevent="navigate('inventory')"><span class="logo"><Layers :size="22"/></span>GEAR<span>FLOW</span><small>WORKSPACE</small></a>
    <div class="workspace"><span class="workspace-icon"><Cpu :size="17"/></span><div><b>电脑配件工作区</b><small>本地体验版</small></div><span class="workspace-badge">01</span></div>
    <div class="nav-caption">WORKSPACE <span>工作空间</span></div>
-   <nav><button v-for="n in nav" :key="n.id" :title="n.label" :aria-label="n.label" :class="{active:page===n.id}" @click="navigate(n.id)"><component :is="n.icon" :size="18"/><span>{{n.label}}</span><span v-if="n.id==='inventory'" class="nav-count">{{data.products.length}}</span></button></nav>
+   <nav><button v-for="n in navVisible" :key="n.id" :title="n.label" :aria-label="n.label" :class="{active:page===n.id}" @click="navigate(n.id)"><component :is="n.icon" :size="18"/><span>{{n.label}}</span><span v-if="n.id==='inventory'" class="nav-count">{{data.products.length}}</span></button></nav>
    <div class="sidebar-note"><span class="tiny-square"></span> 从一件配件，到每一笔生意。<div class="wire-cube"><Boxes :size="58" stroke-width=".7"/></div></div>
    <div class="sidebar-foot"><span :class="['connection',{online:connection}]"></span>{{connection?'服务器已连接':'服务器未连接'}}<small>LOCAL</small></div>
   </aside>
@@ -89,12 +97,14 @@ onMounted(load)
   <template #header>
    <header class="topbar"><button class="icon-button layout-toggle" :aria-label="isMobile?'打开导航':collapsed?'展开侧栏':'折叠侧栏'" @click="siderCollapse=!siderCollapse"><Menu :size="20"/></button><div class="breadcrumbs">工作空间 <ChevronRight :size="13"/><b>{{title}}</b></div><div class="top-right"><ThemePicker/><span class="demo-label">本地演示 · 单工作区</span><button class="icon-button" aria-label="刷新数据" @click="load"><RefreshCw :size="16" :class="{spin:loading}"/></button><button class="icon-button" style="width:auto;padding:0 6px;font-size:11px" @click="emit('logout')" aria-label="退出登录">退出</button><span class="avatar">GF</span></div></header>
   </template>
-  <template #tab><div class="workspace-tabs"><button v-for="n in nav" :key="n.id" :class="{selected:page===n.id}" @click="navigate(n.id)"><component :is="n.icon" :size="13"/>{{n.label}}</button><span>GEARFLOW / 工作台</span></div></template>
+  <template #tab><div class="workspace-tabs"><button v-for="n in navVisible" :key="n.id" :class="{selected:page===n.id}" @click="navigate(n.id)"><component :is="n.icon" :size="13"/>{{n.label}}</button><span>GEARFLOW / 工作台</span></div></template>
    <div class="content">
     <WorkforcePanel v-if="['employees','services','commissions'].includes(page)" :key="page" :page="page" :data="data" :api="api" @refresh="load" @notify="notify"/>
     <BusinessPanel v-else-if="page==='partners'||page==='stocktake'" :key="page" :page="page" :data="data" :api="api" @refresh="load" @notify="notify"/>
+    <ReportsPanel v-else-if="page==='reports'" :api="api" @notify="notify"/>
+    <UsersPanel v-else-if="page==='users'" :api="api" :me="props.user?.username || ''" @notify="notify"/>
     <template v-else>
-    <div class="page-title"><div><div class="eyebrow">{{page==='inventory'?'INVENTORY MANAGEMENT':page==='purchase'?'PURCHASE MANAGEMENT':page==='sale'?'SALES MANAGEMENT':'INVENTORY ACTIVITY'}}</div><h1>{{title}}<span class="title-dot"></span></h1><p>{{page==='inventory'?'管理硬件档案与可用库存，采购、销售一步完成。':page==='purchase'?'记录采购商品与供应商，确认后同步增加可用库存。':page==='sale'?'选择商品与客户，确认出库后同步扣减库存。':'追踪每一次入库与出库，让库存变化有据可查。'}}</p></div><div class="title-actions"><button class="button secondary" @click="exportCsv"><Download :size="15"/>导出数据</button><button class="button primary" v-if="page!=='ledger'" :disabled="!connection" @click="open(page==='inventory'?'product':page)"><Plus :size="17"/>{{page==='inventory'?'新建商品':page==='purchase'?'采购入库':'销售出库'}}</button></div></div>
+    <div class="page-title"><div><div class="eyebrow">{{page==='inventory'?'INVENTORY MANAGEMENT':page==='purchase'?'PURCHASE MANAGEMENT':page==='sale'?'SALES MANAGEMENT':'INVENTORY ACTIVITY'}}</div><h1>{{title}}<span class="title-dot"></span></h1><p>{{page==='inventory'?'管理硬件档案与可用库存，采购、销售一步完成。':page==='purchase'?'记录采购商品与供应商，确认后同步增加可用库存。':page==='sale'?'选择商品与客户，确认出库后同步扣减库存。':'追踪每一次入库与出库，让库存变化有据可查。'}}</p></div><div class="title-actions"><button class="button secondary" @click="exportCsv"><Download :size="15"/>导出数据</button><button class="button primary" v-if="page!=='ledger'&&(page!=='inventory'||canEditCatalog)" :disabled="!connection" @click="open(page==='inventory'?'product':page)"><Plus :size="17"/>{{page==='inventory'?'新建商品':page==='purchase'?'采购入库':'销售出库'}}</button></div></div>
     <div v-if="error" class="error-banner" role="alert"><CircleAlert :size="17"/>{{error}}<button @click="load">重试</button></div>
     <section v-if="page==='inventory'" class="metrics"><article><div class="metric-label">库存资产价值 <Layers :size="16"/></div><strong>{{money(inventoryValue)}}</strong><div class="metric-bottom"><span class="blue-mark"></span>按商品采购参考价估算</div></article><article><div class="metric-label">在库商品总量 <Boxes :size="16"/></div><strong>{{totalStock.toLocaleString()}}<small>件</small></strong><div class="metric-bottom">覆盖 <b>{{data.products.length}}</b> 个商品 SKU</div></article><article><div class="metric-label">累计销售金额 <ArrowUpRight :size="16"/></div><strong>{{money(salesValue)}}</strong><div class="metric-bottom">已完成 <b>{{data.orders.filter(o=>o.type==='sale').length}}</b> 笔销售出库</div></article><article class="warning-metric" @click="navigate('inventory');category='全部商品';status='low'"><div class="metric-label">需要关注 <CircleAlert :size="16"/></div><strong>{{low.length.toString().padStart(2,'0')}}<small>项</small></strong><button class="metric-bottom">查看低库存商品 <ArrowRight :size="13"/></button></article></section>
     <div v-if="loading&&!data.products.length" class="skeleton-panel" aria-label="正在加载数据"><div v-for="i in 6" :key="i"></div></div>
