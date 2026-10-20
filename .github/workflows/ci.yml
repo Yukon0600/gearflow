@@ -43,5 +43,6 @@ jobs:
 
       - name: 校验生产配置
         run: |
+          cp infra/.env.example infra/.env
           docker compose -f infra/docker-compose.prod.yml config --quiet
           echo "compose 文件语法正常"
