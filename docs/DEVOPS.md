@@ -58,16 +58,27 @@ docker cp backups/gearflow-<时间戳>.sqlite infra-server-1:/data/gearflow.sqli
 docker compose -f infra/docker-compose.prod.yml start server
 ```
 
-## 接入远程仓库
+## 双远程仓库（Gitee + GitHub）
 
-本地仓库已初始化（分支 `main`），推到 GitHub 或 Gitee 后 CI 就会自动跑：
+本地仓库已初始化（分支 `main`）。约定两个远程：
+
+| 远程名 | 平台 | 角色 |
+| --- | --- | --- |
+| `origin` | Gitee | 主仓库，国内推送快，论文里作为代码地址 |
+| `github` | GitHub | 镜像仓库，CI / Deploy 流水线在它上面跑 |
 
 ```bash
-git remote add origin git@github.com:<账号>/gearflow.git   # 或 https://gitee.com/<账号>/gearflow.git
-git push -u origin main
+git remote add origin git@gitee.com:<账号>/gearflow.git
+git remote add github git@github.com:<账号>/gearflow.git
+bash scripts/push-all.ps1            # 或用下面的 PowerShell 调用
+powershell -ExecutionPolicy Bypass -File scripts\push-all.ps1
 ```
 
-推 GitHub 后要在 `Settings → Secrets and variables → Actions` 里加三个 secret，Deploy 流水线才能连服务器：
+[scripts/push-all.ps1](../scripts/push-all.ps1) 会依次推两个远程，可选 `-Message "feat: xxx"` 顺便提交。它使用专用密钥 `artifacts/git_key`，避免和服务器部署密钥混用。
+
+**CI 只放在 GitHub 上**，Gitee 仅作镜像。原因是两家的流水线格式不兼容（GitHub Actions 在 `.github/workflows/`，Gitee Go 在 `.workflow/`），同时维护两套容易出现「一边绿一边红」的尴尬，答辩时也难以解释哪个是准的。镜像仓库的价值是防单点故障与国内访问速度，不是重复劳动。
+
+GitHub 上要在 `Settings → Secrets and variables → Actions` 里加三个 secret，Deploy 流水线才能连服务器：
 
 | Secret | 值 |
 | --- | --- |
@@ -75,7 +86,7 @@ git push -u origin main
 | `DEPLOY_HOST` | `182.92.126.12` |
 | `DEPLOY_USER` | `root` |
 
-若改用 Gitee，`.github/workflows/*.yml` 不被识别，需要改写成 Gitee Go 的 `.workflow/*.yml` 格式，语法差别较大，二者不要混放。
+两个平台都需要把 `artifacts/git_key.pub` 加到账号的 SSH Keys 里，推送才能免密。
 
 ## 已知局限
 

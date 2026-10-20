@@ -19,7 +19,7 @@
   },
   "quickapp": {},
   "mp-weixin": {
-    "appid": "",
+    "appid": "wx6ad6c7bb9c5927",
     "setting": { "urlCheck": false, "es6": true, "minified": true },
     "usingComponents": true
   },
