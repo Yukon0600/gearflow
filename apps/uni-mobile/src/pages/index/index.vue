@@ -11,6 +11,23 @@
         <text class="date-hint">下拉可刷新</text>
       </view>
 
+      <!-- 公告条 -->
+      <view class="notice">
+        <view class="notice-tag">公告</view>
+        <swiper
+          class="notice-swiper"
+          vertical
+          circular
+          autoplay
+          :interval="3500"
+          :duration="400"
+        >
+          <swiper-item v-for="(n, i) in notices" :key="i">
+            <text class="notice-text">{{ n }}</text>
+          </swiper-item>
+        </swiper>
+      </view>
+
       <!-- 经营概览 -->
       <view class="hero">
         <view class="hero-top">
@@ -133,6 +150,22 @@ const dateText = computed(() => {
 
 const updatedText = computed(() => (summary.updatedAt ? `数据更新于 ${timeAgo(summary.updatedAt)}` : ''));
 
+// 公告内容按当前数据动态生成：有预警先说预警，没有就说经营概况
+const notices = computed(() => {
+  const list = [];
+  if (summary.lowCount > 0) {
+    list.push(`有 ${summary.lowCount} 件商品低于安全库存，建议尽快补货`);
+  }
+  if (summary.todayOrders > 0) {
+    list.push(`今日已开 ${summary.todayOrders} 张单据，入库 ${summary.todayInbound} 件、出库 ${summary.todayOutbound} 件`);
+  } else {
+    list.push('今日还没有单据，扫码即可快速入库、出库');
+  }
+  list.push('扫码出入库后，Web 端与移动端数据实时一致');
+  list.push('GearFlow 移动端 v1.1 · 库存、流水、预警一站查看');
+  return list;
+});
+
 const entries = [
   { key: 'in', icon: '入', label: '采购入库', bg: 'rgba(124,224,184,0.14)', color: '#7CE0B8', action: () => scan('in') },
   { key: 'out', icon: '出', label: '销售出库', bg: 'rgba(255,180,84,0.16)', color: '#FFB454', action: () => scan('out') },
@@ -244,6 +277,42 @@ function scan(type) {
 .retry {
   font-size: 24rpx;
   color: #a99bff;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+  padding: 14rpx 20rpx;
+  background: #171a21;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18rpx;
+}
+
+.notice-tag {
+  flex-shrink: 0;
+  padding: 4rpx 14rpx;
+  border-radius: 8rpx;
+  font-size: 18rpx;
+  color: #a99bff;
+  background: rgba(124, 108, 240, 0.18);
+}
+
+.notice-swiper {
+  flex: 1;
+  height: 44rpx;
+}
+
+.notice-text {
+  display: block;
+  height: 44rpx;
+  line-height: 44rpx;
+  font-size: 22rpx;
+  color: #9aa0b0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 概览卡 */
