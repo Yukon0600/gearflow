@@ -33,7 +33,7 @@
       <view class="tip">登录状态有效期 8 小时</view>
     </view>
 
-    <view class="foot">GearFlow · 进销存管理</view>
+    <view class="foot">GearFlow · 进销存管理 · v1.2</view>
   </view>
 </template>
 
