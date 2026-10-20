@@ -48,7 +48,12 @@ async function bootstrap() {
   app.use((req: any, res: any, next: () => void) => {
     const path = req.path.replace(/\/$/, '');
     if (!path.startsWith('/api/') || path === '/api/health') return next();
-    if (!['GET', 'HEAD'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ message: '不允许跨站请求' });
+    // 跨站校验只对「带会话 Cookie 的浏览器请求」生效：
+    // 小程序与鸿蒙客户端没有浏览器 Cookie，靠 Bearer token 认证，带 Cookie 才存在 CSRF 风险。
+    const hasSessionCookie = (req.headers.cookie || '').includes('gearflow_session=');
+    if (!['GET', 'HEAD'].includes(req.method) && hasSessionCookie && req.headers['sec-fetch-site'] === 'cross-site') {
+      return res.status(403).json({ message: '不允许跨站请求' });
+    }
     const cookieToken = (req.headers.cookie || '').split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('gearflow_session='))?.slice(17) || '';
     // 小程序与鸿蒙没有浏览器 Cookie 机制，额外支持 Authorization: Bearer <token>
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '') || cookieToken;    const cookie = (value: string, age: number) => res.setHeader('Set-Cookie', `gearflow_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${process.env.GEARFLOW_SECURE_COOKIE === '1' ? '; Secure' : ''}`);
