@@ -72,7 +72,7 @@ export class Store {
 
   /** 移动端首页概览：库存价值、今日出入库、低库存与最近流水。 */
   mobileSummary() {
-    const rows = this.db.prepare('SELECT stock, cost, price, threshold FROM products').all() as any[];
+    const rows = this.db.prepare('SELECT id, sku, name, brand, stock, threshold, cost, price FROM products').all() as any[];
     const stockValue = rows.reduce((s, p) => s + Number(p.stock) * Number(p.cost), 0);
     const retailValue = rows.reduce((s, p) => s + Number(p.stock) * Number(p.price), 0);
     const today = new Date().toISOString().slice(0, 10);
@@ -82,7 +82,9 @@ export class Store {
       .reduce((s, m) => s + Number(m.delta), 0);
     const outbound = todayRows.filter((m) => Number(m.delta) < 0)
       .reduce((s, m) => s + Math.abs(Number(m.delta)), 0);
-    const lowList = rows.filter((p) => Number(p.stock) <= Number(p.threshold));
+    const lowList = rows
+      .filter((p) => Number(p.stock) <= Number(p.threshold))
+      .sort((a, b) => Number(a.stock) - Number(b.stock));
     return {
       updatedAt: new Date().toISOString(),
       productCount: rows.length,
@@ -91,6 +93,16 @@ export class Store {
       retailValue,
       todayInbound: inbound,
       todayOutbound: outbound,
+      todayOrders: new Set(todayRows.map((m) => m.orderId).filter(Boolean)).size,
+      lowProducts: lowList.slice(0, 5).map((p) => ({
+        id: String(p.id),
+        name: String(p.name),
+        sku: String(p.sku),
+        brand: String(p.brand),
+        stock: Number(p.stock),
+        threshold: Number(p.threshold),
+        suggest: Math.max(Number(p.threshold) * 2 - Number(p.stock), 0),
+      })),
       recent: all.slice(0, 8).map((m) => ({
         id: String(m.id),
         name: String(m.name),
