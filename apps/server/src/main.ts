@@ -20,6 +20,7 @@ const store = new Store(process.env.GEARFLOW_DB_PATH || resolve(__dirname, '../d
 @Controller()
 class InventoryController {
   @Get('workspace') snapshot() { return store.snapshot(); }
+  @Get('mobile/stock') mobileStock() { return store.mobileStock(); }
   @Post('products') product(@Body() body: any) { return store.createProduct(body); }
   @Patch('products/:id') updateProduct(@Param('id') id: string, @Body() body: any) { return store.createProduct(body, id); }
   @Post('orders') order(@Body() body: any) { return store.createOrder(body); }
@@ -48,8 +49,9 @@ async function bootstrap() {
     const path = req.path.replace(/\/$/, '');
     if (!path.startsWith('/api/') || path === '/api/health') return next();
     if (!['GET', 'HEAD'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ message: '不允许跨站请求' });
-    const token = (req.headers.cookie || '').split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('gearflow_session='))?.slice(17) || '';
-    const cookie = (value: string, age: number) => res.setHeader('Set-Cookie', `gearflow_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${process.env.GEARFLOW_SECURE_COOKIE === '1' ? '; Secure' : ''}`);
+    const cookieToken = (req.headers.cookie || '').split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('gearflow_session='))?.slice(17) || '';
+    // 小程序与鸿蒙没有浏览器 Cookie 机制，额外支持 Authorization: Bearer <token>
+    const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '') || cookieToken;    const cookie = (value: string, age: number) => res.setHeader('Set-Cookie', `gearflow_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${process.env.GEARFLOW_SECURE_COOKIE === '1' ? '; Secure' : ''}`);
     res.setHeader('Cache-Control', 'no-store');
     if (path === '/api/auth/login' && req.method === 'POST') {
       const now = Date.now();
@@ -60,7 +62,7 @@ async function bootstrap() {
       const session = auth.login(req.body?.username, req.body?.password);
       if (!session) { attempt.count++; attempts.set(key, attempt); return res.status(401).json({ message: '账号或密码不正确' }); }
       attempts.delete(key); cookie(session, 28800);
-      return res.json({ user: auth.user(session) });
+      return res.json({ user: auth.user(session), token: session, expiresIn: 28800 });
     }
     if (path === '/api/auth/logout' && req.method === 'POST') { auth.logout(token); cookie('', 0); return res.json({ ok: true }); }
     const user = auth.user(token);

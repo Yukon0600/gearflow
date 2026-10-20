@@ -57,6 +57,18 @@ export class Store {
     return this.db.prepare('SELECT * FROM orders ORDER BY createdAt DESC, rowid DESC').all().map(o => ({ ...o, lines: this.db.prepare('SELECT l.*, p.name, p.sku FROM order_lines l JOIN products p ON p.id=l.productId WHERE orderId=?').all(o.id) }));
   }
   snapshot() { return { products: this.products(), orders: this.orders(), movements: this.movements(), categories, partners:this.partners(), drafts:this.drafts(), stocktakes:this.stocktakes(), employees:this.workforce.employees(), services:this.workforce.services(), commissions:this.workforce.commissions() }; }
+  /** 移动端（小程序 / 鸿蒙）用的精简库存清单，只带必要字段。 */
+  mobileStock() {
+    const rows = this.db.prepare(
+      'SELECT id, sku, name, category, brand, stock, threshold, price FROM products ORDER BY stock ASC, name ASC'
+    ).all() as any[];
+    return {
+      updatedAt: new Date().toISOString(),
+      total: rows.length,
+      lowCount: rows.filter((p) => Number(p.stock) <= Number(p.threshold)).length,
+      products: rows.map((p) => ({ ...p, low: Number(p.stock) <= Number(p.threshold) })),
+    };
+  }
   createProduct(body: ProductInput, existingId?: string) {
     if (existingId && !this.db.prepare('SELECT id FROM products WHERE id=?').get(existingId)) throw new NotFoundException('商品不存在');
     if (!body || typeof body !== 'object') throw new BadRequestException('商品数据格式错误');

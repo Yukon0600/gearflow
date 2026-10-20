@@ -1,0 +1,27 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/login",
+      "style": { "navigationBarTitleText": "登录" }
+    },
+    {
+      "path": "pages/stock/stock",
+      "style": {
+        "navigationBarTitleText": "库存",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/stock/detail",
+      "style": { "navigationBarTitleText": "商品详情" }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "GearFlow",
+    "navigationBarBackgroundColor": "#101114",
+    "backgroundColor": "#0d0e12",
+    "backgroundColorTop": "#0d0e12",
+    "backgroundColorBottom": "#0d0e12"
+  }
+}

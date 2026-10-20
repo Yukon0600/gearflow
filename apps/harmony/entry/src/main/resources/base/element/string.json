@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "GearFlow 进销存鸿蒙客户端"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "库存查询与扫码盘点"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "GearFlow"
+    }
+  ]
+}
