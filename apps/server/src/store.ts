@@ -69,6 +69,59 @@ export class Store {
       products: rows.map((p) => ({ ...p, low: Number(p.stock) <= Number(p.threshold) })),
     };
   }
+
+  /** 移动端首页概览：库存价值、今日出入库、低库存与最近流水。 */
+  mobileSummary() {
+    const rows = this.db.prepare('SELECT stock, cost, price, threshold FROM products').all() as any[];
+    const stockValue = rows.reduce((s, p) => s + Number(p.stock) * Number(p.cost), 0);
+    const retailValue = rows.reduce((s, p) => s + Number(p.stock) * Number(p.price), 0);
+    const today = new Date().toISOString().slice(0, 10);
+    const all = this.movements() as any[];
+    const todayRows = all.filter((m) => String(m.createdAt).startsWith(today));
+    const inbound = todayRows.filter((m) => Number(m.delta) > 0)
+      .reduce((s, m) => s + Number(m.delta), 0);
+    const outbound = todayRows.filter((m) => Number(m.delta) < 0)
+      .reduce((s, m) => s + Math.abs(Number(m.delta)), 0);
+    const lowList = rows.filter((p) => Number(p.stock) <= Number(p.threshold));
+    return {
+      updatedAt: new Date().toISOString(),
+      productCount: rows.length,
+      lowCount: lowList.length,
+      stockValue,
+      retailValue,
+      todayInbound: inbound,
+      todayOutbound: outbound,
+      recent: all.slice(0, 8).map((m) => ({
+        id: String(m.id),
+        name: String(m.name),
+        sku: String(m.sku),
+        type: String(m.type),
+        delta: Number(m.delta),
+        balance: Number(m.balance),
+        orderNumber: m.orderNumber ? String(m.orderNumber) : '',
+        createdAt: String(m.createdAt),
+      })),
+    };
+  }
+
+  /** 移动端流水列表。 */
+  mobileMovements(limit = 50) {
+    const size = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    return {
+      total: Number((this.db.prepare('SELECT count(*) AS n FROM movements').get() as any).n),
+      items: (this.movements() as any[]).slice(0, size).map((m) => ({
+        id: String(m.id),
+        name: String(m.name),
+        sku: String(m.sku),
+        type: String(m.type),
+        delta: Number(m.delta),
+        balance: Number(m.balance),
+        orderNumber: m.orderNumber ? String(m.orderNumber) : '',
+        partner: m.partner ? String(m.partner) : '',
+        createdAt: String(m.createdAt),
+      })),
+    };
+  }
   createProduct(body: ProductInput, existingId?: string) {
     if (existingId && !this.db.prepare('SELECT id FROM products WHERE id=?').get(existingId)) throw new NotFoundException('商品不存在');
     if (!body || typeof body !== 'object') throw new BadRequestException('商品数据格式错误');

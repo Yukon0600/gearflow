@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Body, Controller, Get, Module, Post, Patch, Param } from '@nestjs/common';
+import { Body, Controller, Get, Module, Post, Patch, Param, Query } from '@nestjs/common';
 import { resolve } from 'node:path';
 import { Store } from './store';
 import { NestFactory } from '@nestjs/core';
@@ -21,6 +21,8 @@ const store = new Store(process.env.GEARFLOW_DB_PATH || resolve(__dirname, '../d
 class InventoryController {
   @Get('workspace') snapshot() { return store.snapshot(); }
   @Get('mobile/stock') mobileStock() { return store.mobileStock(); }
+  @Get('mobile/summary') mobileSummary() { return store.mobileSummary(); }
+  @Get('mobile/movements') mobileMovements(@Query('limit') limit?: string) { return store.mobileMovements(limit ? Number(limit) : 50); }
   @Post('products') product(@Body() body: any) { return store.createProduct(body); }
   @Patch('products/:id') updateProduct(@Param('id') id: string, @Body() body: any) { return store.createProduct(body, id); }
   @Post('orders') order(@Body() body: any) { return store.createOrder(body); }
