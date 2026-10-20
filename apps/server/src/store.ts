@@ -62,11 +62,49 @@ export class Store {
     const rows = this.db.prepare(
       'SELECT id, sku, name, category, brand, stock, threshold, price FROM products ORDER BY stock ASC, name ASC'
     ).all() as any[];
+    const counts = new Map<string, { count: number; low: number }>();
+    for (const p of rows) {
+      const key = String(p.category || '未分类');
+      const cur = counts.get(key) || { count: 0, low: 0 };
+      cur.count += 1;
+      if (Number(p.stock) <= Number(p.threshold)) cur.low += 1;
+      counts.set(key, cur);
+    }
+    const categoryList = Array.from(counts.entries())
+      .map(([name, v]) => ({ name, count: v.count, low: v.low }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     return {
       updatedAt: new Date().toISOString(),
       total: rows.length,
       lowCount: rows.filter((p) => Number(p.stock) <= Number(p.threshold)).length,
+      categories: categoryList,
       products: rows.map((p) => ({ ...p, low: Number(p.stock) <= Number(p.threshold) })),
+    };
+  }
+
+  /** 移动端商品详情：含该商品最近流水。 */
+  mobileProduct(id: string, limit = 10) {
+    const p = this.db.prepare(
+      'SELECT id, sku, name, category, brand, stock, threshold, price FROM products WHERE id=?'
+    ).get(id) as any;
+    if (!p) return null;
+    const size = Math.min(Math.max(Number(limit) || 10, 1), 50);
+    const history = (this.movements() as any[])
+      .filter((m) => String(m.productId) === String(id))
+      .slice(0, size)
+      .map((m) => ({
+        id: String(m.id),
+        type: String(m.type),
+        delta: Number(m.delta),
+        balance: Number(m.balance),
+        orderNumber: m.orderNumber ? String(m.orderNumber) : '',
+        partner: m.partner ? String(m.partner) : '',
+        createdAt: String(m.createdAt),
+      }));
+    return {
+      ...p,
+      low: Number(p.stock) <= Number(p.threshold),
+      movements: history,
     };
   }
 

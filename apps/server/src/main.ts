@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Body, Controller, Get, Module, Post, Patch, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Module, Post, Patch, Param, Query, NotFoundException } from '@nestjs/common';
 import { resolve } from 'node:path';
 import { Store } from './store';
 import { NestFactory } from '@nestjs/core';
@@ -21,6 +21,11 @@ const store = new Store(process.env.GEARFLOW_DB_PATH || resolve(__dirname, '../d
 class InventoryController {
   @Get('workspace') snapshot() { return store.snapshot(); }
   @Get('mobile/stock') mobileStock() { return store.mobileStock(); }
+  @Get('mobile/product/:id') mobileProduct(@Param('id') id: string) {
+    const product = store.mobileProduct(id);
+    if (!product) throw new NotFoundException('商品不存在');
+    return product;
+  }
   @Get('mobile/summary') mobileSummary() { return store.mobileSummary(); }
   @Get('mobile/movements') mobileMovements(@Query('limit') limit?: string) { return store.mobileMovements(limit ? Number(limit) : 50); }
   @Post('products') product(@Body() body: any) { return store.createProduct(body); }
@@ -47,6 +52,19 @@ async function bootstrap() {
   const attempts = new Map<string, { count: number; until: number }>();
   // Register after the JSON parser and before controllers, so every business API is protected.
   app.useBodyParser('json', { limit: '1mb' });
+  // 可选 CORS：仅当设置了 GEARFLOW_CORS_ORIGIN 时启用，用于本地 H5 联调。
+  // 生产环境不设置该变量，默认不发送任何跨域头。
+  const corsOrigin = process.env.GEARFLOW_CORS_ORIGIN || '';
+  if (corsOrigin) {
+    app.use((req: any, res: any, next: () => void) => {
+      res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+      res.setHeader('Vary', 'Origin');
+      if (req.method === 'OPTIONS') return res.status(204).end();
+      next();
+    });
+  }
   app.use((req: any, res: any, next: () => void) => {
     const path = req.path.replace(/\/$/, '');
     if (!path.startsWith('/api/') || path === '/api/health') return next();

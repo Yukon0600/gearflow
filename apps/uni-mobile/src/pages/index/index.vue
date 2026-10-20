@@ -207,7 +207,7 @@ function scan(type) {
 }
 
 .body {
-  padding: 20rpx 28rpx 40rpx;
+  padding: 20rpx 28rpx calc(140rpx + env(safe-area-inset-bottom));
 }
 
 .date-row {

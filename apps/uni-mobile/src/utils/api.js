@@ -48,6 +48,7 @@ export const api = {
   me: () => request('/api/auth/me'),
   summary: () => request('/api/mobile/summary'),
   stock: () => request('/api/mobile/stock'),
+  product: (id) => request(`/api/mobile/product/${id}`),
   movements: (limit = 50) => request(`/api/mobile/movements?limit=${limit}`),
   createOrder: (payload) => request('/api/orders', { method: 'POST', data: payload }),
 };

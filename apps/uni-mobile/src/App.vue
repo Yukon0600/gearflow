@@ -22,7 +22,7 @@ page {
 /* 通用容器 */
 .page {
   min-height: 100vh;
-  padding: 24rpx 28rpx 40rpx;
+  padding: 24rpx 28rpx calc(140rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 

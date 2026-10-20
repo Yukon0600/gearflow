@@ -39,6 +39,26 @@ test('移动端库存接口：字段完整、低库存标记正确、按库存�
     // 库存少的排前面，方便移动端优先展示预警商品
     assert.equal(data.products[0].id, low.id);
     assert.equal(data.products[1].id, plenty.id);
+
+    // 分类聚合：数量与低库存数要对得上
+    const cat = data.categories.find((c) => c.name === '显卡');
+    assert.ok(cat, '应包含显卡分类');
+    assert.equal(cat.count, 1);
+    assert.equal(cat.low, 1);
+
+    // 单品详情：带该商品的最近流水
+    const detail = s.mobileProduct(low.id);
+    assert.equal(detail.name, '移动端测试显卡');
+    assert.equal(detail.low, true);
+    assert.equal(detail.movements.length, 0);
+
+    const detail2 = s.mobileProduct(plenty.id);
+    assert.equal(detail2.movements.length, 1);
+    assert.equal(detail2.movements[0].delta, 20);
+    assert.equal(detail2.movements[0].balance, 20);
+
+    // 不存在的商品返回 null，交给上层转 404
+    assert.equal(s.mobileProduct('not-exist'), null);
   } finally {
     s.close();
     rmSync(dir, { recursive: true, force: true });

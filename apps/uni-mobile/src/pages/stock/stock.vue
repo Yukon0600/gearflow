@@ -1,6 +1,6 @@
 <template>
-  <view class="page stock-page">
-    <view class="search-wrap">
+  <view class="wrap">
+    <view class="search-bar">
       <view class="search">
         <text class="search-icon">⌕</text>
         <input
@@ -13,76 +13,129 @@
       </view>
     </view>
 
-    <scroll-view scroll-x class="chips" :show-scrollbar="false">
-      <view
-        v-for="c in categoryList"
-        :key="c"
-        class="chip"
-        :class="{ active: category === c }"
-        @click="category = c"
-      >
-        {{ c }}
-      </view>
-    </scroll-view>
-
     <view v-if="error" class="error">{{ error }}</view>
 
-    <view v-if="loading && !products.length" class="empty">加载中…</view>
-    <view v-else-if="!filtered.length" class="empty">没有匹配的商品</view>
+    <view v-if="loading && !products.length" class="loading">加载中…</view>
 
-    <view v-else class="list">
-      <view v-for="p in filtered" :key="p.id" class="item" @click="open(p)">
-        <view class="item-main">
-          <view class="item-name">{{ p.name }}</view>
-          <view class="item-sub">
-            <text>{{ p.sku }}</text>
-            <text class="dot">·</text>
-            <text>{{ p.brand }}</text>
+    <view v-else class="layout">
+      <!-- 左侧分类 -->
+      <scroll-view scroll-y class="aside" :scroll-into-view="asideInto">
+        <view
+          v-for="(g, i) in groups"
+          :id="'aside-' + i"
+          :key="g.name"
+          class="aside-item"
+          :class="{ active: active === i }"
+          @click="pick(i)"
+        >
+          <text class="aside-name">{{ g.name }}</text>
+          <text class="aside-count" :class="{ warn: g.low > 0 }">{{ g.items.length }}</text>
+        </view>
+        <view class="aside-pad" />
+      </scroll-view>
+
+      <!-- 右侧商品 -->
+      <scroll-view
+        scroll-y
+        class="main"
+        :scroll-into-view="mainInto"
+        :scroll-with-animation="true"
+        @scroll="onScroll"
+      >
+        <view v-for="(g, i) in groups" :id="'sec-' + i" :key="g.name" class="section">
+          <view class="section-head">
+            <text class="section-name">{{ g.name }}</text>
+            <text class="section-count">{{ g.items.length }} 件</text>
+          </view>
+
+          <view
+            v-for="p in g.items"
+            :key="p.id"
+            class="item"
+            :class="{ low: p.low }"
+            @click="open(p)"
+          >
+            <view class="item-top">
+              <text class="item-name">{{ p.name }}</text>
+              <text class="item-stock num" :class="{ low: p.low }">{{ p.stock }}</text>
+            </view>
+            <view class="item-meta">
+              <text>{{ p.sku }}</text>
+              <text class="sep">·</text>
+              <text>{{ p.brand }}</text>
+            </view>
+            <view class="item-foot">
+              <text class="item-price">¥{{ yuan(p.price) }}</text>
+              <view v-if="p.low" class="tag-warn">库存偏低</view>
+            </view>
           </view>
         </view>
-        <view class="item-side">
-          <view class="stock-line">
-            <text class="stock num" :class="{ low: p.low }">{{ p.stock }}</text>
-            <text class="unit">件</text>
-          </view>
-          <view class="price">¥{{ yuan(p.price) }}</view>
-        </view>
-      </view>
+
+        <view v-if="!groups.length" class="empty">没有匹配的商品</view>
+        <view class="main-pad" />
+      </scroll-view>
     </view>
-
-    <view class="footer-hint">共 {{ filtered.length }} 件商品 · 下拉可刷新</view>
   </view>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { onShow, onLoad, onPullDownRefresh } from '@dcloudio/uni-app';
 import { api, clearToken, yuan } from '../../utils/api.js';
 import { STORAGE_PRODUCTS } from '../../config.js';
 
 const products = ref([]);
+const categories = ref([]);
 const keyword = ref('');
-const category = ref('全部');
 const loading = ref(false);
 const error = ref('');
+const active = ref(0);
+const mainInto = ref('');
+const asideInto = ref('');
+
+// 布局常量（rpx），用于滚动位置与左侧高亮联动
+const HEAD_RPX = 76;
+const ROW_RPX = 150;
 let pendingType = '';
 
-const categoryList = computed(() => {
-  const set = new Set(products.value.map((p) => p.category).filter(Boolean));
-  return ['全部', ...Array.from(set)];
+const groups = computed(() => {
+  const k = keyword.value.trim().toLowerCase();
+  const match = (p) =>
+    !k ||
+    String(p.name).toLowerCase().includes(k) ||
+    String(p.sku).toLowerCase().includes(k) ||
+    String(p.brand || '').toLowerCase().includes(k);
+
+  if (k) {
+    const hits = products.value.filter(match);
+    return hits.length ? [{ name: '搜索结果', low: 0, items: hits }] : [];
+  }
+
+  const map = new Map();
+  for (const p of products.value) {
+    const key = p.category || '未分类';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(p);
+  }
+
+  // 顺序优先跟随后端返回，保证左右两侧一致
+  const order = categories.value.map((c) => c.name).filter((n) => map.has(n));
+  for (const key of map.keys()) if (!order.includes(key)) order.push(key);
+
+  return order.map((name) => {
+    const items = map.get(name) || [];
+    return { name, items, low: items.filter((p) => p.low).length };
+  });
 });
 
-const filtered = computed(() => {
-  const k = keyword.value.trim().toLowerCase();
-  return products.value.filter((p) => {
-    if (category.value !== '全部' && p.category !== category.value) return false;
-    if (!k) return true;
-    return (
-      String(p.name).toLowerCase().includes(k) ||
-      String(p.sku).toLowerCase().includes(k) ||
-      String(p.brand || '').toLowerCase().includes(k)
-    );
-  });
+const offsets = computed(() => {
+  const list = [];
+  let acc = 0;
+  for (const g of groups.value) {
+    list.push(acc);
+    acc += HEAD_RPX + g.items.length * ROW_RPX;
+  }
+  return list;
 });
 
 async function load() {
@@ -91,8 +144,10 @@ async function load() {
   try {
     const data = await api.stock();
     products.value = data.products || [];
+    categories.value = data.categories || [];
     uni.setStorageSync(STORAGE_PRODUCTS, JSON.stringify(products.value));
-    tryAutoOrder();
+    if (active.value >= groups.value.length) active.value = 0;
+    autoOrder();
   } catch (e) {
     error.value = e.message || '加载失败';
     if (String(e.message).includes('登录')) {
@@ -104,8 +159,8 @@ async function load() {
   }
 }
 
-/** 扫码进来时：如果扫到的 SKU 唯一命中，直接跳到开单页 */
-function tryAutoOrder() {
+/** 扫码进入：SKU 唯一命中时直接进开单页 */
+function autoOrder() {
   const code = keyword.value.trim();
   if (!code || !pendingType) return;
   const hit = products.value.filter((p) => String(p.sku).toLowerCase() === code.toLowerCase());
@@ -116,9 +171,37 @@ function tryAutoOrder() {
   }
 }
 
+function pick(i) {
+  active.value = i;
+  mainInto.value = '';
+  setTimeout(() => { mainInto.value = `sec-${i}`; }, 10);
+  asideInto.value = `aside-${Math.max(i - 2, 0)}`;
+}
+
+function onScroll(e) {
+  if (keyword.value.trim()) return;
+  const pxPerRpx = uni.upx2px(1) || 1;
+  const scrollRpx = e.detail.scrollTop / pxPerRpx;
+  const list = offsets.value;
+  let idx = 0;
+  for (let i = 0; i < list.length; i += 1) {
+    if (list[i] <= scrollRpx + 8) idx = i;
+  }
+  if (idx !== active.value) {
+    active.value = idx;
+    asideInto.value = `aside-${Math.max(idx - 2, 0)}`;
+  }
+}
+
 onLoad((query) => {
   if (query && query.code) keyword.value = decodeURIComponent(query.code);
   if (query && query.type) pendingType = query.type;
+});
+
+watch(keyword, () => {
+  active.value = 0;
+  mainInto.value = '';
+  setTimeout(() => { mainInto.value = 'sec-0'; }, 10);
 });
 
 onShow(() => load());
@@ -134,153 +217,221 @@ function open(p) {
 </script>
 
 <style>
-.stock-page {
-  padding-top: 12rpx;
+.wrap {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #0d0e12;
+  box-sizing: border-box;
 }
 
-.search-wrap {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  padding: 4rpx 0 12rpx;
+.search-bar {
+  padding: 16rpx 24rpx;
   background: #0d0e12;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .search {
   display: flex;
   align-items: center;
   gap: 12rpx;
-  padding: 18rpx 26rpx;
+  padding: 16rpx 24rpx;
   background: #12141a;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20rpx;
+  border-radius: 18rpx;
 }
 
 .search-icon {
-  font-size: 30rpx;
+  font-size: 28rpx;
   color: #6b7080;
 }
 
 .search input {
   flex: 1;
-  font-size: 28rpx;
+  font-size: 26rpx;
   color: #e8eaf0;
 }
 
 .clear {
-  font-size: 32rpx;
+  font-size: 30rpx;
   color: #6b7080;
-  padding: 0 8rpx;
+  padding: 0 6rpx;
 }
 
 .ph {
   color: #5b6070;
 }
 
-.chips {
-  display: flex;
-  white-space: nowrap;
-  margin-bottom: 16rpx;
-}
-
-.chip {
-  display: inline-block;
-  padding: 10rpx 24rpx;
-  margin-right: 12rpx;
-  border-radius: 999rpx;
-  font-size: 24rpx;
-  color: #8b90a0;
-  background: #15181f;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.chip.active {
-  color: #fff;
-  background: linear-gradient(135deg, #7c6cf0, #4aa8f0);
-  border-color: transparent;
-}
-
 .error {
-  margin: 8rpx 4rpx 16rpx;
+  padding: 12rpx 28rpx;
   font-size: 24rpx;
   color: #ff7a7a;
 }
 
-.list {
+.loading {
+  padding: 120rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: #6b7080;
+}
+
+.layout {
+  flex: 1;
   display: flex;
-  flex-direction: column;
-  gap: 14rpx;
+  min-height: 0;
+}
+
+.aside {
+  width: 200rpx;
+  flex-shrink: 0;
+  background: #101218;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.aside-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 18rpx 28rpx 22rpx;
+  border-left: 6rpx solid transparent;
+}
+
+.aside-item.active {
+  background: #171a21;
+  border-left-color: #7c6cf0;
+}
+
+.aside-name {
+  font-size: 24rpx;
+  color: #8b90a0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aside-item.active .aside-name {
+  color: #f2f4f8;
+  font-weight: 600;
+}
+
+.aside-count {
+  font-size: 18rpx;
+  color: #5b6070;
+}
+
+.aside-count.warn {
+  color: #ffb454;
+}
+
+.aside-pad {
+  height: 160rpx;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 22rpx 6rpx 14rpx;
+}
+
+.section-name {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #b6bbca;
+}
+
+.section-count {
+  font-size: 18rpx;
+  color: #5b6070;
 }
 
 .item {
-  display: flex;
-  align-items: center;
-  padding: 26rpx 28rpx;
+  padding: 24rpx 24rpx;
+  margin-bottom: 14rpx;
   background: #171a21;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 22rpx;
+  border-radius: 20rpx;
 }
 
-.item-main {
-  flex: 1;
-  min-width: 0;
+.item.low {
+  border-color: rgba(255, 180, 84, 0.28);
+}
+
+.item-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16rpx;
 }
 
 .item-name {
-  font-size: 28rpx;
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
   color: #eef0f6;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.item-sub {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  margin-top: 8rpx;
-  font-size: 20rpx;
-  color: #6b7080;
-}
-
-.item-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6rpx;
-  margin-left: 20rpx;
-}
-
-.stock-line {
-  display: flex;
-  align-items: baseline;
-  gap: 4rpx;
-}
-
-.stock {
-  font-size: 34rpx;
+.item-stock {
+  font-size: 30rpx;
   font-weight: 700;
   color: #7ce0b8;
 }
 
-.stock.low {
+.item-stock.low {
   color: #ffb454;
 }
 
-.unit {
-  font-size: 20rpx;
+.item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 8rpx;
+  font-size: 18rpx;
   color: #6b7080;
 }
 
-.price {
-  font-size: 20rpx;
-  color: #7d8394;
+.sep {
+  color: #3f4453;
 }
 
-.footer-hint {
-  padding: 30rpx 0 10rpx;
+.item-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14rpx;
+}
+
+.item-price {
+  font-size: 22rpx;
+  color: #8b90a0;
+}
+
+.tag-warn {
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 18rpx;
+  color: #ffb454;
+  background: rgba(255, 180, 84, 0.14);
+}
+
+.main-pad {
+  height: 180rpx;
+}
+
+.empty {
+  padding: 120rpx 0;
   text-align: center;
-  font-size: 20rpx;
-  color: #5b6070;
+  font-size: 24rpx;
+  color: #6b7080;
 }
 </style>
