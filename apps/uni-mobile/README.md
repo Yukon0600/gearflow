@@ -61,6 +61,20 @@ GET  /api/mobile/movements    → 最近流水（?limit=60）
 POST /api/orders              → 开单（入库 purchase / 出库 sale）
 ```
 
+## 登录预填（仅本地）
+
+演示时不想每次输密码，可以放一个**本地凭据文件**（已被 `.gitignore` 忽略，不会进仓库）：
+
+```
+artifacts/dev-login.txt     内容一行：admin|你的密码
+```
+
+`scripts/build-mini.ps1` 会读取它，通过构建期常量注入登录页默认值；没有这个文件就不预填。
+源码里不含任何密码，仓库里也查不到。
+
+另外登录页有「记住密码」开关（默认开），首次登录成功后会保存在设备本地，下次打开自动登录。
+上线或提交体验版之前，删掉 `artifacts/dev-login.txt` 重新构建一次，避免把密码打进包里。
+
 ## 界面自查（不需要真机）
 
 把 H5 版本跑起来，用 Playwright 截图，能直接看到真实渲染效果：

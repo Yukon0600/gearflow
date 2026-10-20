@@ -20,6 +20,22 @@ if (-not (Test-Path (Join-Path $app 'node_modules'))) {
 }
 
 Write-Host "`n==> 编译小程序" -ForegroundColor Cyan
+
+# 本地预填登录账号（可选）：artifacts\dev-login.txt 里写 账号|密码
+# 该目录已被 .gitignore 忽略，凭据不会进仓库
+$credFile = Join-Path $root 'artifacts\dev-login.txt'
+if (Test-Path $credFile) {
+  $line = (Get-Content $credFile -Raw).Trim()
+  $parts = $line -split '\|', 2
+  if ($parts.Count -eq 2 -and $parts[0].Trim()) {
+    $env:VITE_DEV_USER = $parts[0].Trim()
+    $env:VITE_DEV_PWD = $parts[1]
+    Write-Host "    已注入本地预填账号：$($parts[0].Trim())（仅本次构建，不写入仓库）" -ForegroundColor DarkGray
+  }
+} else {
+  Write-Host '    未找到 artifacts\dev-login.txt，登录页不预填密码' -ForegroundColor DarkGray
+}
+
 Push-Location $app
 npm run build:mp-weixin
 $code = $LASTEXITCODE

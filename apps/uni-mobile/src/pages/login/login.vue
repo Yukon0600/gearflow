@@ -24,6 +24,13 @@
         <input v-model="password" password placeholder="请输入密码" placeholder-class="ph" maxlength="256" />
       </view>
 
+      <view class="remember" @click="remember = !remember">
+        <view class="check" :class="{ on: remember }">
+          <text v-if="remember" class="tick">✓</text>
+        </view>
+        <text class="remember-text">记住密码，下次自动登录</text>
+      </view>
+
       <view v-if="error" class="error">{{ error }}</view>
 
       <button class="btn submit" :disabled="busy" @click="submit">
@@ -43,32 +50,61 @@ import { onLoad } from '@dcloudio/uni-app';
 import { api, setToken, getToken, clearToken } from '../../utils/api.js';
 
 const statusBar = uni.getSystemInfoSync().statusBarHeight || 20;
-const username = ref('admin');
-const password = ref('');
+const REMEMBER_KEY = 'gf_login';
+
+// 构建期注入的开发用默认值（见 vite.config.js），仓库里不保存凭据，默认空字符串
+const DEV_USER = __DEV_USER__ || '';
+const DEV_PWD = __DEV_PWD__ || '';
+
+function readRemember() {
+  try {
+    return JSON.parse(uni.getStorageSync(REMEMBER_KEY) || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
+const saved = readRemember();
+const username = ref(saved.username || DEV_USER || 'admin');
+const password = ref(saved.password || DEV_PWD || '');
+const remember = ref(saved.remember !== false);
 const busy = ref(false);
 const error = ref('');
 
 onLoad(async () => {
-  if (!getToken()) return;
-  try {
-    await api.me();
-    uni.switchTab({ url: '/pages/index/index' });
-  } catch (e) {
-    clearToken();
+  // 已登录直接进工作台
+  if (getToken()) {
+    try {
+      await api.me();
+      uni.switchTab({ url: '/pages/index/index' });
+      return;
+    } catch (e) {
+      clearToken();
+    }
+  }
+  // 记住了密码就自动登录，省掉一次点击
+  if (remember.value && username.value && password.value) {
+    setTimeout(() => submit(), 200);
   }
 });
 
 async function submit() {
-  const u = username.value.trim();
+  const u = String(username.value).trim();
   if (!u || !password.value) {
     error.value = '请输入账号和密码';
     return;
   }
+  if (busy.value) return;
   busy.value = true;
   error.value = '';
   try {
     const res = await api.login(u, password.value);
     setToken(res.token);
+    if (remember.value) {
+      uni.setStorageSync(REMEMBER_KEY, JSON.stringify({ username: u, password: password.value, remember: true }));
+    } else {
+      uni.removeStorageSync(REMEMBER_KEY);
+    }
     uni.switchTab({ url: '/pages/index/index' });
   } catch (e) {
     error.value = e.message || '登录失败';
@@ -122,7 +158,7 @@ async function submit() {
 }
 
 .headline {
-  margin-top: 90rpx;
+  margin-top: 70rpx;
 }
 
 .title {
@@ -139,11 +175,11 @@ async function submit() {
 }
 
 .form {
-  margin-top: 60rpx;
+  margin-top: 44rpx;
 }
 
 .label {
-  margin: 26rpx 0 14rpx 4rpx;
+  margin: 24rpx 0 14rpx 4rpx;
   font-size: 24rpx;
   color: #8b90a0;
 }
@@ -164,18 +200,51 @@ async function submit() {
   color: #5b6070;
 }
 
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin: 26rpx 4rpx 0;
+}
+
+.check {
+  width: 32rpx;
+  height: 32rpx;
+  border-radius: 8rpx;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.check.on {
+  background: linear-gradient(135deg, #7c6cf0, #4aa8f0);
+  border-color: transparent;
+}
+
+.tick {
+  font-size: 20rpx;
+  color: #fff;
+  line-height: 1;
+}
+
+.remember-text {
+  font-size: 24rpx;
+  color: #8b90a0;
+}
+
 .error {
-  margin: 24rpx 4rpx 0;
+  margin: 20rpx 4rpx 0;
   font-size: 24rpx;
   color: #ff7a7a;
 }
 
 .submit {
-  margin-top: 44rpx;
+  margin-top: 34rpx;
 }
 
 .tip {
-  margin-top: 24rpx;
+  margin-top: 22rpx;
   text-align: center;
   font-size: 20rpx;
   color: #5b6070;
