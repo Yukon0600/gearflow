@@ -38,14 +38,11 @@
 
     <view class="foot">GearFlow · 进销存管理</view>
   </view>
-
-  <tab-bar current="mine" />
 </template>
 
 <script setup>
 import { ref } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
-import TabBar from '../../components/tab-bar.vue';
 import { api, clearToken, getToken } from '../../utils/api.js';
 import { BASE_URL } from '../../config.js';
 

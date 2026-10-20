@@ -52,14 +52,11 @@
 
     <view class="footer-hint">共 {{ filtered.length }} 件商品 · 下拉可刷新</view>
   </view>
-
-  <tab-bar current="stock" />
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
 import { onShow, onLoad, onPullDownRefresh } from '@dcloudio/uni-app';
-import TabBar from '../../components/tab-bar.vue';
 import { api, clearToken, yuan } from '../../utils/api.js';
 import { STORAGE_PRODUCTS } from '../../config.js';
 

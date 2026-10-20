@@ -1,22 +1,14 @@
 <template>
   <view class="screen">
-    <!-- 自定义导航栏 -->
-    <view class="nav" :style="{ paddingTop: statusBar + 'px' }">
-      <view class="nav-inner">
-        <view class="nav-left">
-          <text class="nav-title">工作台</text>
-          <text class="nav-sub">{{ dateText }}</text>
-        </view>
-        <view class="nav-actions">
-          <view class="nav-btn" @click="scan('out')">扫码</view>
-        </view>
-      </view>
-    </view>
-
     <view class="body">
       <view v-if="error" class="card error-card">
         <text class="error-text">{{ error }}</text>
         <text class="retry" @click="load">重试</text>
+      </view>
+
+      <view class="date-row">
+        <text class="date-text">{{ dateText }}</text>
+        <text class="date-hint">下拉可刷新</text>
       </view>
 
       <!-- 经营概览 -->
@@ -59,7 +51,7 @@
       <view class="section">
         <view class="section-head">
           <text class="section-title">库存预警</text>
-          <text class="section-more" @click="go('/pages/stock/stock')">
+          <text class="section-more" @click="goStock">
             {{ summary.lowCount > 0 ? '共 ' + summary.lowCount + ' 项 ›' : '全部正常' }}
           </text>
         </view>
@@ -87,7 +79,7 @@
       <view class="section">
         <view class="section-head">
           <text class="section-title">最近动态</text>
-          <text class="section-more" @click="go('/pages/flow/flow')">全部 ›</text>
+          <text class="section-more" @click="goFlow">全部 ›</text>
         </view>
 
         <view v-if="!summary.recent.length" class="card empty-card">
@@ -112,17 +104,12 @@
       <view class="foot-note">{{ updatedText }}</view>
     </view>
   </view>
-
-  <tab-bar current="index" />
 </template>
 
 <script setup>
 import { reactive, ref, computed } from 'vue';
 import { onShow, onPullDownRefresh } from '@dcloudio/uni-app';
-import TabBar from '../../components/tab-bar.vue';
 import { api, clearToken, thousands, timeAgo, MOVEMENT_LABEL } from '../../utils/api.js';
-
-const statusBar = uni.getSystemInfoSync().statusBarHeight || 20;
 
 const summary = reactive({
   productCount: 0,
@@ -141,7 +128,7 @@ const error = ref('');
 const dateText = computed(() => {
   const d = new Date();
   const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
-  return `${d.getMonth() + 1}月${d.getDate()}日 星期${week}`;
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 星期${week}`;
 });
 
 const updatedText = computed(() => (summary.updatedAt ? `数据更新于 ${timeAgo(summary.updatedAt)}` : ''));
@@ -150,9 +137,9 @@ const entries = [
   { key: 'in', icon: '入', label: '采购入库', bg: 'rgba(124,224,184,0.14)', color: '#7CE0B8', action: () => scan('in') },
   { key: 'out', icon: '出', label: '销售出库', bg: 'rgba(255,180,84,0.16)', color: '#FFB454', action: () => scan('out') },
   { key: 'scan', icon: '扫', label: '扫码查货', bg: 'rgba(124,108,240,0.18)', color: '#A99BFF', action: () => scan('') },
-  { key: 'stock', icon: '存', label: '库存清单', bg: 'rgba(74,168,240,0.16)', color: '#6FC3FF', action: () => go('/pages/stock/stock') },
-  { key: 'flow', icon: '流', label: '库存流水', bg: 'rgba(233,120,160,0.16)', color: '#F29BC0', action: () => go('/pages/flow/flow') },
-  { key: 'mine', icon: '我', label: '我的', bg: 'rgba(255,255,255,0.08)', color: '#C9CEDA', action: () => go('/pages/mine/mine') },
+  { key: 'stock', icon: '存', label: '库存清单', bg: 'rgba(74,168,240,0.16)', color: '#6FC3FF', action: () => goStock() },
+  { key: 'flow', icon: '流', label: '库存流水', bg: 'rgba(233,120,160,0.16)', color: '#F29BC0', action: () => goFlow() },
+  { key: 'mine', icon: '我', label: '我的', bg: 'rgba(255,255,255,0.08)', color: '#C9CEDA', action: () => goMine() },
 ];
 
 function labelOf(type) {
@@ -186,8 +173,16 @@ onPullDownRefresh(async () => {
   uni.stopPullDownRefresh();
 });
 
-function go(url) {
-  uni.reLaunch({ url });
+function goStock() {
+  uni.switchTab({ url: '/pages/stock/stock' });
+}
+
+function goFlow() {
+  uni.switchTab({ url: '/pages/flow/flow' });
+}
+
+function goMine() {
+  uni.switchTab({ url: '/pages/mine/mine' });
 }
 
 function scan(type) {
@@ -207,51 +202,29 @@ function scan(type) {
 <style>
 .screen {
   min-height: 100vh;
-  padding-bottom: 160rpx;
   box-sizing: border-box;
   background: radial-gradient(120% 60% at 50% 0%, rgba(124, 108, 240, 0.16), transparent 70%), #0d0e12;
 }
 
-/* 导航栏 */
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: rgba(13, 14, 18, 0.86);
-  backdrop-filter: blur(24rpx);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+.body {
+  padding: 20rpx 28rpx 40rpx;
 }
 
-.nav-inner {
+.date-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20rpx 28rpx 22rpx;
+  padding: 6rpx 6rpx 22rpx;
 }
 
-.nav-title {
-  font-size: 36rpx;
-  font-weight: 700;
-  color: #f5f6fa;
-}
-
-.nav-sub {
-  margin-left: 16rpx;
-  font-size: 22rpx;
-  color: #6b7080;
-}
-
-.nav-btn {
-  padding: 12rpx 28rpx;
-  border-radius: 999rpx;
+.date-text {
   font-size: 24rpx;
-  color: #cfc9ff;
-  background: rgba(124, 108, 240, 0.16);
-  border: 1px solid rgba(124, 108, 240, 0.28);
+  color: #8b90a0;
 }
 
-.body {
-  padding: 24rpx 28rpx 0;
+.date-hint {
+  font-size: 20rpx;
+  color: #4d5262;
 }
 
 .error-card {

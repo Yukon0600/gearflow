@@ -52,7 +52,7 @@ onLoad(async () => {
   if (!getToken()) return;
   try {
     await api.me();
-    uni.reLaunch({ url: '/pages/index/index' });
+    uni.switchTab({ url: '/pages/index/index' });
   } catch (e) {
     clearToken();
   }
@@ -69,7 +69,7 @@ async function submit() {
   try {
     const res = await api.login(u, password.value);
     setToken(res.token);
-    uni.reLaunch({ url: '/pages/index/index' });
+    uni.switchTab({ url: '/pages/index/index' });
   } catch (e) {
     error.value = e.message || '登录失败';
   } finally {

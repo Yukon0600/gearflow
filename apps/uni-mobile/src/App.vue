@@ -7,7 +7,7 @@ import { onLaunch } from '@dcloudio/uni-app';
 
 onLaunch(() => {
   if (getToken()) {
-    uni.reLaunch({ url: '/pages/index/index' });
+    uni.switchTab({ url: '/pages/index/index' });
   }
 });
 </script>
@@ -22,7 +22,7 @@ page {
 /* 通用容器 */
 .page {
   min-height: 100vh;
-  padding: 24rpx 28rpx 160rpx;
+  padding: 24rpx 28rpx 40rpx;
   box-sizing: border-box;
 }
 

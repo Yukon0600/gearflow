@@ -118,7 +118,7 @@ async function submit() {
     });
     uni.showToast({ title: type.value === 'in' ? '入库成功' : '出库成功', icon: 'success' });
     setTimeout(() => {
-      uni.reLaunch({ url: '/pages/stock/stock' });
+      uni.switchTab({ url: '/pages/stock/stock' });
     }, 800);
   } catch (e) {
     error.value = e.message || '提交失败';

@@ -6,11 +6,17 @@
     },
     {
       "path": "pages/index/index",
-      "style": { "navigationStyle": "custom", "enablePullDownRefresh": true }
+      "style": {
+        "navigationBarTitleText": "工作台",
+        "enablePullDownRefresh": true
+      }
     },
     {
       "path": "pages/stock/stock",
-      "style": { "navigationBarTitleText": "库存", "enablePullDownRefresh": true }
+      "style": {
+        "navigationBarTitleText": "库存",
+        "enablePullDownRefresh": true
+      }
     },
     {
       "path": "pages/stock/detail",
@@ -18,7 +24,10 @@
     },
     {
       "path": "pages/flow/flow",
-      "style": { "navigationBarTitleText": "库存流水", "enablePullDownRefresh": true }
+      "style": {
+        "navigationBarTitleText": "库存流水",
+        "enablePullDownRefresh": true
+      }
     },
     {
       "path": "pages/mine/mine",
@@ -29,6 +38,38 @@
       "style": { "navigationBarTitleText": "开单" }
     }
   ],
+  "tabBar": {
+    "color": "#6B7080",
+    "selectedColor": "#7C6CF0",
+    "backgroundColor": "#101114",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "工作台",
+        "iconPath": "static/tabbar/home.png",
+        "selectedIconPath": "static/tabbar/home-active.png"
+      },
+      {
+        "pagePath": "pages/stock/stock",
+        "text": "库存",
+        "iconPath": "static/tabbar/box.png",
+        "selectedIconPath": "static/tabbar/box-active.png"
+      },
+      {
+        "pagePath": "pages/flow/flow",
+        "text": "流水",
+        "iconPath": "static/tabbar/flow.png",
+        "selectedIconPath": "static/tabbar/flow-active.png"
+      },
+      {
+        "pagePath": "pages/mine/mine",
+        "text": "我的",
+        "iconPath": "static/tabbar/user.png",
+        "selectedIconPath": "static/tabbar/user-active.png"
+      }
+    ]
+  },
   "globalStyle": {
     "navigationBarTextStyle": "white",
     "navigationBarTitleText": "GearFlow",

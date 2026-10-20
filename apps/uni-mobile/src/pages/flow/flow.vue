@@ -42,14 +42,11 @@
 
     <view class="footer-hint">共 {{ total }} 条流水 · 显示最近 {{ items.length }} 条</view>
   </view>
-
-  <tab-bar current="flow" />
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
 import { onShow, onPullDownRefresh } from '@dcloudio/uni-app';
-import TabBar from '../../components/tab-bar.vue';
 import { api, clearToken, timeAgo, MOVEMENT_LABEL } from '../../utils/api.js';
 
 const items = ref([]);
