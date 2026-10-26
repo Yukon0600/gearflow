@@ -7,7 +7,7 @@ import { demoProducts, demoPartners } from './demo-data';
 import { seedDemoActivity } from './demo-activity';
 import { Workforce } from './workforce';
 
-type ProductInput = { name?: unknown; sku?: unknown; category?: unknown; brand?: unknown; cost?: unknown; price?: unknown; threshold?: unknown };
+type ProductInput = { name?: unknown; sku?: unknown; category?: unknown; brand?: unknown; cost?: unknown; price?: unknown; threshold?: unknown; image?: unknown };
 export type OrderType = 'purchase' | 'sale' | 'return_in' | 'return_out' | 'scrap';
 
 const ORDER_TYPES: OrderType[] = ['purchase', 'sale', 'return_in', 'return_out', 'scrap'];
@@ -89,6 +89,9 @@ export class Store {
     addCol('approvedAt', "TEXT NOT NULL DEFAULT ''");
     addCol('employeeId', "TEXT NOT NULL DEFAULT ''");
     addCol('rejectReason', "TEXT NOT NULL DEFAULT ''");
+    // 商品图片：存相对路径或外链，空则前端按分类回退到内置插图
+    const productCols = (this.db.prepare('PRAGMA table_info(products)').all() as any[]).map((c) => String(c.name));
+    if (!productCols.includes('image')) this.db.exec("ALTER TABLE products ADD COLUMN image TEXT NOT NULL DEFAULT ''");
     if (seed && (this.db.prepare('SELECT count(*) AS n FROM products').get() as any).n === 0) this.seed();
     if (seed) this.expandDemo();
     if (seed) this.transaction(() => seedDemoActivity(this));
@@ -490,14 +493,15 @@ export class Store {
     const cost = integer(body.cost, '采购单价（分）');
     const price = integer(body.price, '销售单价（分）');
     const threshold = integer(body.threshold, '预警库存', 0, 1000000);
+    const image = body.image === undefined || body.image === '' ? '' : stringValue(body.image, '商品图片', 500);
     const duplicate = this.db.prepare('SELECT id FROM products WHERE sku=?').get(sku);
     if (duplicate && duplicate.id !== existingId) throw new ConflictException('SKU 已存在，请使用其他编码');
     if (existingId) {
-      this.db.prepare('UPDATE products SET sku=?,name=?,category=?,brand=?,cost=?,price=?,threshold=? WHERE id=?').run(sku,name,category,brand,cost,price,threshold,existingId);
+      this.db.prepare('UPDATE products SET sku=?,name=?,category=?,brand=?,cost=?,price=?,threshold=?,image=? WHERE id=?').run(sku,name,category,brand,cost,price,threshold,image,existingId);
       return this.db.prepare('SELECT * FROM products WHERE id=?').get(existingId);
     }
     const id = randomUUID();
-    this.db.prepare('INSERT INTO products VALUES(?,?,?,?,?,?,?,0,?,?)').run(id, sku, name, category, brand, cost, price, threshold, new Date().toISOString());
+    this.db.prepare('INSERT INTO products (id,sku,name,category,brand,cost,price,stock,threshold,createdAt,image) VALUES(?,?,?,?,?,?,?,0,?,?,?)').run(id, sku, name, category, brand, cost, price, threshold, new Date().toISOString(), image);
     return this.db.prepare('SELECT * FROM products WHERE id=?').get(id);
   }
   createOrder(body: OrderInput, options: { status?: 'pending' | 'posted'; createdBy?: string } = {}) {

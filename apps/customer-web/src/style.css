@@ -84,3 +84,7 @@
 }
 /* The upstream width utility must yield to the expanded mobile sider. */
 .soy-workspace .soy-mobile-sider:not(.overflow-hidden){width:var(--soy-sider-width)}
+
+/* 商品插图：SVG 按空间裁切填充，保留圆角 */
+.product-art img{width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit}
+.product-art .art-grid{opacity:.35}

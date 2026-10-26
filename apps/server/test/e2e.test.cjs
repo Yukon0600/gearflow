@@ -108,10 +108,11 @@ test('商品：创建、重复 SKU 被拒、PATCH 只传单个字段也能生效
   const created = await api('/api/products', {
     method: 'POST',
     token: adminToken,
-    body: { name: 'E2E 测试显卡', sku: 'E2E-GPU-1', category: '显卡', brand: 'E2E', cost: 10000, price: 15000, threshold: 2 },
+    body: { name: 'E2E 测试显卡', sku: 'E2E-GPU-1', category: '显卡', brand: 'E2E', cost: 10000, price: 15000, threshold: 2, image: '/art/gpu.svg' },
   });
   assert.equal(created.status, 201);
   productId = created.data.id;
+  assert.equal(created.data.image, '/art/gpu.svg', '商品图片地址应能保存');
 
   const dup = await api('/api/products', {
     method: 'POST',
