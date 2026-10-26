@@ -7,6 +7,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { API_PREFIX } from '@gearflow/shared';
 import { Auth, ROLE_LABEL, ROLES, type Role } from './auth';
 import { canAccess, abilities } from './permissions';
+import { Audit } from './audit';
 
 @Controller('health')
 class HealthController {
@@ -18,6 +19,7 @@ class HealthController {
 
 const store = new Store(process.env.GEARFLOW_DB_PATH || resolve(__dirname, '../data/gearflow.sqlite'));
 const auth = new Auth(store.db);
+const audit = new Audit(store.db);
 
 @Controller()
 class InventoryController {
@@ -31,7 +33,12 @@ class InventoryController {
   @Get('mobile/summary') mobileSummary() { return store.mobileSummary(); }
   @Get('mobile/movements') mobileMovements(@Query('limit') limit?: string) { return store.mobileMovements(limit ? Number(limit) : 50); }
   @Post('products') product(@Body() body: any) { return store.createProduct(body); }
-  @Patch('products/:id') updateProduct(@Param('id') id: string, @Body() body: any) { return store.createProduct(body, id); }
+  @Patch('products/:id') updateProduct(@Param('id') id: string, @Body() body: any) {
+    // PATCH 语义：只改传进来的字段，其余沿用原值
+    const existing = store.db.prepare('SELECT * FROM products WHERE id=?').get(id) as any;
+    if (!existing) throw new NotFoundException('商品不存在');
+    return store.createProduct({ ...existing, ...body }, id);
+  }
   @Post('orders') order(@Body() body: any) { return store.createOrder(body); }
   @Post('partners') partner(@Body() body: any) { return store.savePartner(body); }
   @Patch('partners/:id') updatePartner(@Param('id') id:string,@Body() body:any) { return store.savePartner(body,id); }
@@ -92,7 +99,15 @@ class ReportsController {
   }
 }
 
-@Module({ controllers: [HealthController, InventoryController, UsersController, ReportsController] })
+@Controller('audit')
+class AuditController {
+  @Get()
+  list(@Query('limit') limit?: string, @Query('username') username?: string) {
+    return audit.list(limit ? Number(limit) : 100, username || '');
+  }
+}
+
+@Module({ controllers: [HealthController, InventoryController, UsersController, ReportsController, AuditController] })
 class AppModule {}
 
 async function bootstrap() {
@@ -147,6 +162,24 @@ async function bootstrap() {
       return res.status(403).json({ message: `当前为${ROLE_LABEL[user.role]}，没有该操作权限` });
     }
     (req as any).user = user;
+    // 写操作落审计：只记录成功完成（<400）的请求，避免把失败尝试混进正常操作记录
+    if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+      res.on('finish', () => {
+        if (res.statusCode >= 400) return;
+        try {
+          audit.record({
+            username: user.username,
+            role: user.role,
+            method: req.method,
+            path,
+            status: res.statusCode,
+            ip: String(req.ip || ''),
+          });
+        } catch {
+          // 审计失败不能影响主流程
+        }
+      });
+    }
     next();
   });
   app.setGlobalPrefix(API_PREFIX);

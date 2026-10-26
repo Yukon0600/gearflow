@@ -38,6 +38,15 @@ export class Store {
       CREATE TABLE IF NOT EXISTS movements (id TEXT PRIMARY KEY, productId TEXT NOT NULL REFERENCES products(id), orderId TEXT REFERENCES orders(id), type TEXT NOT NULL, delta INTEGER NOT NULL, balance INTEGER NOT NULL CHECK(balance>=0), createdAt TEXT NOT NULL);
     `);
     this.workforce = new Workforce(this.db);
+
+    // 老库升级：单据行补成本快照字段，用商品当前成本回填历史数据（-1 表示未回填）
+    const lineColumns = (this.db.prepare('PRAGMA table_info(order_lines)').all() as any[]).map((c) => String(c.name));
+    if (!lineColumns.includes('unitCost')) {
+      this.db.exec('ALTER TABLE order_lines ADD COLUMN unitCost INTEGER NOT NULL DEFAULT -1');
+      this.db.exec(`UPDATE order_lines SET unitCost = COALESCE((SELECT cost FROM products WHERE products.id = order_lines.productId), 0)
+        WHERE unitCost < 0`);
+    }
+
     if (seed && (this.db.prepare('SELECT count(*) AS n FROM products').get() as any).n === 0) this.seed();
     if (seed) this.expandDemo();
     if (seed) this.transaction(() => seedDemoActivity(this));
@@ -117,7 +126,7 @@ export class Store {
 
     const rows = this.db.prepare(`
       SELECT o.createdAt AS createdAt, o.type AS type, o.number AS number,
-             l.quantity AS quantity, l.unitPrice AS unitPrice,
+             l.quantity AS quantity, l.unitPrice AS unitPrice, l.unitCost AS unitCost,
              p.id AS productId, p.name AS name, p.category AS category, p.cost AS cost
       FROM order_lines l
       JOIN orders o ON o.id = l.orderId
@@ -139,19 +148,20 @@ export class Store {
       const qty = Number(r.quantity);
       const unit = Number(r.unitPrice);
       const amount = qty * unit;
+      const cost = Number(r.unitCost) >= 0 ? Number(r.unitCost) : Number(r.cost);
       const bucket = byDay.get(day) || { sales: 0, purchase: 0 };
 
       if (r.type === 'sale') {
         salesTotal += amount;
         salesOrders.add(String(r.number));
-        grossProfit += (unit - Number(r.cost)) * qty;
+        grossProfit += (unit - cost) * qty;
         bucket.sales += amount;
 
         const p = byProduct.get(String(r.productId)) ||
           { id: String(r.productId), name: String(r.name), qty: 0, amount: 0, profit: 0 };
         p.qty += qty;
         p.amount += amount;
-        p.profit += (unit - Number(r.cost)) * qty;
+        p.profit += (unit - cost) * qty;
         byProduct.set(String(r.productId), p);
 
         const cat = String(r.category || '未分类');
@@ -309,10 +319,13 @@ export class Store {
     const total = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
     if (!Number.isSafeInteger(total) || total > 100000000000) throw new BadRequestException('单据金额过大');
     return this.transaction(() => {
+      // 校验的同时记住出库时的成本，用于落成本快照
+      const costAtSale = new Map<string, number>();
       for (const line of lines) {
         const p = this.db.prepare('SELECT * FROM products WHERE id=?').get(line.productId);
         if (!p) throw new BadRequestException('商品不存在');
         if (type === 'sale' && Number(p.stock) < line.quantity) throw new ConflictException(`${p.name} 库存不足，当前可用 ${p.stock} 件`);
+        costAtSale.set(line.productId, Number((p as any).cost));
       }
       const id = randomUUID();
       const createdAt = new Date().toISOString();
@@ -321,7 +334,8 @@ export class Store {
       this.db.prepare('INSERT INTO orders VALUES(?,?,?,?,?,?,?)').run(id, number, type, partner, note, total, createdAt);
       for (const line of lines) {
         const delta = type === 'purchase' ? line.quantity : -line.quantity;
-        this.db.prepare('INSERT INTO order_lines VALUES(?,?,?,?,?)').run(randomUUID(), id, line.productId, line.quantity, line.unitPrice);
+        const unitCost = type === 'purchase' ? line.unitPrice : (costAtSale.get(line.productId) ?? 0);
+        this.db.prepare('INSERT INTO order_lines (id,orderId,productId,quantity,unitPrice,unitCost) VALUES(?,?,?,?,?,?)').run(randomUUID(), id, line.productId, line.quantity, line.unitPrice, unitCost);
         this.db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(delta, line.productId);
         const p = this.db.prepare('SELECT stock FROM products WHERE id=?').get(line.productId)!;
         this.db.prepare('INSERT INTO movements VALUES(?,?,?,?,?,?,?)').run(randomUUID(), line.productId, id, type, delta, p.stock, createdAt);

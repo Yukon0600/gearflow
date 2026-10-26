@@ -5,6 +5,7 @@ import BusinessPanel from './components/BusinessPanel.vue'
 import WorkforcePanel from './components/WorkforcePanel.vue'
 import ReportsPanel from './components/ReportsPanel.vue'
 import UsersPanel from './components/UsersPanel.vue'
+import AuditPanel from './components/AuditPanel.vue'
 import ThemePicker from './components/ThemePicker.vue'
 import AdminLayout from './vendor/soybean/libs/admin-layout/index.vue'
 import { Boxes, ArrowDownLeft, ArrowUpRight, ArrowRight, Plus, Search, ChevronDown, ChevronLeft, ChevronRight, Download, SlidersHorizontal, Cpu, CircuitBoard, MemoryStick, HardDrive, Mouse, Zap, Monitor, X, Check, RefreshCw, Package, Layers, Activity, Command, Menu, CircleAlert, ExternalLink, LayoutGrid, List, Pencil, ArrowDownUp, Users, ClipboardCheck, FileText, Save } from 'lucide-vue-next'
@@ -17,7 +18,7 @@ const meRole = computed(() => props.user?.role || 'clerk')
 const navVisible = computed(() => nav.filter(n => !n.minRole || ROLE_RANK[meRole.value] >= ROLE_RANK[n.minRole]))
 const canEditCatalog = computed(() => ROLE_RANK[meRole.value] >= ROLE_RANK.manager)
 const view=ref('table'), sort=ref('newest'), pageSize=ref(10)
-const nav = [ {id:'inventory',label:'商品与库存',icon:Boxes}, {id:'purchase',label:'采购入库',icon:ArrowDownLeft}, {id:'sale',label:'销售出库',icon:ArrowUpRight}, {id:'ledger',label:'库存流水',icon:Activity}, {id:'partners',label:'客户与供应商',icon:Users}, {id:'stocktake',label:'库存盘点',icon:ClipboardCheck}, {id:'employees',label:'员工档案',icon:Users}, {id:'services',label:'装机服务',icon:Cpu}, {id:'commissions',label:'员工提成',icon:FileText}, {id:'reports',label:'经营报表',icon:Activity,minRole:'manager'}, {id:'users',label:'用户权限',icon:Users,minRole:'admin'} ]
+const nav = [ {id:'inventory',label:'商品与库存',icon:Boxes}, {id:'purchase',label:'采购入库',icon:ArrowDownLeft}, {id:'sale',label:'销售出库',icon:ArrowUpRight}, {id:'ledger',label:'库存流水',icon:Activity}, {id:'partners',label:'客户与供应商',icon:Users}, {id:'stocktake',label:'库存盘点',icon:ClipboardCheck}, {id:'employees',label:'员工档案',icon:Users}, {id:'services',label:'装机服务',icon:Cpu}, {id:'commissions',label:'员工提成',icon:FileText}, {id:'reports',label:'经营报表',icon:Activity,minRole:'manager'}, {id:'users',label:'用户权限',icon:Users,minRole:'admin'}, {id:'audit',label:'操作日志',icon:ClipboardCheck,minRole:'admin'} ]
 const isMobile=ref(window.innerWidth <= 700), collapsed=ref(false)
 const siderCollapse=computed({get:()=>isMobile.value?!mobile.value:collapsed.value,set:v=>{if(isMobile.value)mobile.value=!v;else collapsed.value=v}})
 function resize(){isMobile.value=window.innerWidth<=700}
@@ -103,6 +104,7 @@ onMounted(load)
     <BusinessPanel v-else-if="page==='partners'||page==='stocktake'" :key="page" :page="page" :data="data" :api="api" @refresh="load" @notify="notify"/>
     <ReportsPanel v-else-if="page==='reports'" :api="api" @notify="notify"/>
     <UsersPanel v-else-if="page==='users'" :api="api" :me="props.user?.username || ''" @notify="notify"/>
+    <AuditPanel v-else-if="page==='audit'" :api="api" @notify="notify"/>
     <template v-else>
     <div class="page-title"><div><div class="eyebrow">{{page==='inventory'?'INVENTORY MANAGEMENT':page==='purchase'?'PURCHASE MANAGEMENT':page==='sale'?'SALES MANAGEMENT':'INVENTORY ACTIVITY'}}</div><h1>{{title}}<span class="title-dot"></span></h1><p>{{page==='inventory'?'管理硬件档案与可用库存，采购、销售一步完成。':page==='purchase'?'记录采购商品与供应商，确认后同步增加可用库存。':page==='sale'?'选择商品与客户，确认出库后同步扣减库存。':'追踪每一次入库与出库，让库存变化有据可查。'}}</p></div><div class="title-actions"><button class="button secondary" @click="exportCsv"><Download :size="15"/>导出数据</button><button class="button primary" v-if="page!=='ledger'&&(page!=='inventory'||canEditCatalog)" :disabled="!connection" @click="open(page==='inventory'?'product':page)"><Plus :size="17"/>{{page==='inventory'?'新建商品':page==='purchase'?'采购入库':'销售出库'}}</button></div></div>
     <div v-if="error" class="error-banner" role="alert"><CircleAlert :size="17"/>{{error}}<button @click="load">重试</button></div>

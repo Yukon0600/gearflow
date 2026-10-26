@@ -8,6 +8,7 @@ const RANK: Record<Role, number> = { clerk: 1, manager: 2, admin: 3 };
  */
 export function requiredRole(method: string, path: string): Role {
   if (path.startsWith('/api/users')) return 'admin';
+  if (path.startsWith('/api/audit')) return 'admin';
   if (path.startsWith('/api/reports')) return 'manager';
   if (method === 'GET' || method === 'HEAD') return 'clerk';
   // 开单、草稿、盘点：店员即可执行
