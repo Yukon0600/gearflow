@@ -8,6 +8,17 @@ import { seedDemoActivity } from './demo-activity';
 import { Workforce } from './workforce';
 
 type ProductInput = { name?: unknown; sku?: unknown; category?: unknown; brand?: unknown; cost?: unknown; price?: unknown; threshold?: unknown };
+export type OrderType = 'purchase' | 'sale' | 'return_in' | 'return_out' | 'scrap';
+
+const ORDER_TYPES: OrderType[] = ['purchase', 'sale', 'return_in', 'return_out', 'scrap'];
+/** 入库类单据增加库存，其余减少库存 */
+const INBOUND_TYPES = new Set<OrderType>(['purchase', 'return_in']);
+const NUMBER_PREFIX: Record<OrderType, string> = {
+  purchase: 'PO', sale: 'SO', return_in: 'RI', return_out: 'RO', scrap: 'SC',
+};
+const PARTNER_LABEL: Record<OrderType, string> = {
+  purchase: '供应商', sale: '客户', return_in: '客户', return_out: '供应商', scrap: '损耗',
+};
 type OrderInput = { type?: unknown; partner?: unknown; note?: unknown; lines?: unknown; employeeId?: unknown };
 type Line = { productId: string; quantity: number; unitPrice: number };
 const categories = ['处理器', '显卡', '内存', '存储', '主板', '外设', '电源 / 散热'];
@@ -33,7 +44,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS stocktake_lines (id TEXT PRIMARY KEY, stocktakeId TEXT NOT NULL REFERENCES stocktakes(id), productId TEXT NOT NULL REFERENCES products(id), expected INTEGER NOT NULL, actual INTEGER NOT NULL, delta INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS stocktake_movements (movementId TEXT PRIMARY KEY REFERENCES movements(id), stocktakeId TEXT NOT NULL REFERENCES stocktakes(id));
       CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, sku TEXT UNIQUE NOT NULL, name TEXT NOT NULL, category TEXT NOT NULL, brand TEXT NOT NULL, cost INTEGER NOT NULL CHECK(cost>=0), price INTEGER NOT NULL CHECK(price>=0), stock INTEGER NOT NULL DEFAULT 0 CHECK(stock>=0), threshold INTEGER NOT NULL DEFAULT 5, createdAt TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, number TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK(type IN ('purchase','sale')), partner TEXT NOT NULL, note TEXT NOT NULL, total INTEGER NOT NULL, createdAt TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, number TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK(type IN ('purchase','sale','return_in','return_out','scrap')), partner TEXT NOT NULL, note TEXT NOT NULL, total INTEGER NOT NULL, createdAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS order_lines (id TEXT PRIMARY KEY, orderId TEXT NOT NULL REFERENCES orders(id), productId TEXT NOT NULL REFERENCES products(id), quantity INTEGER NOT NULL CHECK(quantity>0), unitPrice INTEGER NOT NULL CHECK(unitPrice>=0));
       CREATE TABLE IF NOT EXISTS movements (id TEXT PRIMARY KEY, productId TEXT NOT NULL REFERENCES products(id), orderId TEXT REFERENCES orders(id), type TEXT NOT NULL, delta INTEGER NOT NULL, balance INTEGER NOT NULL CHECK(balance>=0), createdAt TEXT NOT NULL);
     `);
@@ -45,6 +56,26 @@ export class Store {
       this.db.exec('ALTER TABLE order_lines ADD COLUMN unitCost INTEGER NOT NULL DEFAULT -1');
       this.db.exec(`UPDATE order_lines SET unitCost = COALESCE((SELECT cost FROM products WHERE products.id = order_lines.productId), 0)
         WHERE unitCost < 0`);
+    }
+
+    // 老库升级：单据类型从两种扩展到五种（退货入库、采购退货、报损）。
+    // SQLite 不能改 CHECK 约束，只能重建表；重建期间关掉外键，避免 DROP 失败。
+    const ordersDdl = String((this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").get() as any)?.sql || '');
+    if (ordersDdl && !ordersDdl.includes("'return_in'")) {
+      this.db.exec('PRAGMA foreign_keys=OFF');
+      this.db.exec(`CREATE TABLE orders_migrate (
+        id TEXT PRIMARY KEY,
+        number TEXT UNIQUE NOT NULL,
+        type TEXT NOT NULL CHECK(type IN ('purchase','sale','return_in','return_out','scrap')),
+        partner TEXT NOT NULL,
+        note TEXT NOT NULL,
+        total INTEGER NOT NULL,
+        createdAt TEXT NOT NULL
+      )`);
+      this.db.exec('INSERT INTO orders_migrate SELECT id, number, type, partner, note, total, createdAt FROM orders');
+      this.db.exec('DROP TABLE orders');
+      this.db.exec('ALTER TABLE orders_migrate RENAME TO orders');
+      this.db.exec('PRAGMA foreign_keys=ON');
     }
 
     if (seed && (this.db.prepare('SELECT count(*) AS n FROM products').get() as any).n === 0) this.seed();
@@ -137,6 +168,7 @@ export class Store {
     let salesTotal = 0;
     let purchaseTotal = 0;
     let grossProfit = 0;
+    let scrapLoss = 0;
     const salesOrders = new Set<string>();
     const purchaseOrders = new Set<string>();
     const byDay = new Map<string, { sales: number; purchase: number }>();
@@ -151,25 +183,32 @@ export class Store {
       const cost = Number(r.unitCost) >= 0 ? Number(r.unitCost) : Number(r.cost);
       const bucket = byDay.get(day) || { sales: 0, purchase: 0 };
 
-      if (r.type === 'sale') {
-        salesTotal += amount;
-        salesOrders.add(String(r.number));
-        grossProfit += (unit - cost) * qty;
-        bucket.sales += amount;
+      if (r.type === 'sale' || r.type === 'return_in') {
+        // 销售退货冲减销售额与毛利，方向和销售相反
+        const sign = r.type === 'sale' ? 1 : -1;
+        salesTotal += sign * amount;
+        if (r.type === 'sale') salesOrders.add(String(r.number));
+        grossProfit += sign * (unit - cost) * qty;
+        bucket.sales += sign * amount;
 
         const p = byProduct.get(String(r.productId)) ||
           { id: String(r.productId), name: String(r.name), qty: 0, amount: 0, profit: 0 };
-        p.qty += qty;
-        p.amount += amount;
-        p.profit += (unit - cost) * qty;
+        p.qty += sign * qty;
+        p.amount += sign * amount;
+        p.profit += sign * (unit - cost) * qty;
         byProduct.set(String(r.productId), p);
 
         const cat = String(r.category || '未分类');
-        byCategory.set(cat, (byCategory.get(cat) || 0) + amount);
+        byCategory.set(cat, (byCategory.get(cat) || 0) + sign * amount);
+      } else if (r.type === 'scrap') {
+        // 报损按成本计入损耗，不影响销售额
+        scrapLoss += cost * qty;
       } else {
-        purchaseTotal += amount;
-        purchaseOrders.add(String(r.number));
-        bucket.purchase += amount;
+        // 采购入库为正，采购退货为负
+        const sign = r.type === 'purchase' ? 1 : -1;
+        purchaseTotal += sign * amount;
+        if (r.type === 'purchase') purchaseOrders.add(String(r.number));
+        bucket.purchase += sign * amount;
       }
       byDay.set(day, bucket);
     }
@@ -205,6 +244,7 @@ export class Store {
       salesTotal,
       purchaseTotal,
       grossProfit,
+      scrapLoss,
       grossMarginBps: salesTotal ? Math.round((grossProfit / salesTotal) * 10000) : 0,
       orderCount: salesOrders.size + purchaseOrders.size,
       salesOrderCount: salesOrders.size,
@@ -306,9 +346,12 @@ export class Store {
   }
   createOrder(body: OrderInput) {
     if (!body || typeof body !== 'object') throw new BadRequestException('单据数据格式错误');
-    const type = body.type;
-    if (type !== 'purchase' && type !== 'sale') throw new BadRequestException('无效单据类型');
-    const partner = stringValue(body.partner, type === 'purchase' ? '供应商' : '客户');
+    const type = body.type as OrderType;
+    if (!ORDER_TYPES.includes(type)) throw new BadRequestException('无效单据类型');
+    // 报损没有往来单位，缺省写「内部损耗」；其余类型必须填
+    const partner = type === 'scrap'
+      ? (body.partner === undefined || body.partner === '' ? '内部损耗' : stringValue(body.partner, '损耗原因'))
+      : stringValue(body.partner, PARTNER_LABEL[type]);
     const note = body.note === undefined || body.note === '' ? '' : stringValue(body.note, '备注', 500);
     if (!Array.isArray(body.lines) || !body.lines.length || body.lines.length > 50) throw new BadRequestException('单据应包含 1 至 50 行商品');
     const lines: Line[] = body.lines.map((l: any) => {
@@ -324,16 +367,17 @@ export class Store {
       for (const line of lines) {
         const p = this.db.prepare('SELECT * FROM products WHERE id=?').get(line.productId);
         if (!p) throw new BadRequestException('商品不存在');
-        if (type === 'sale' && Number(p.stock) < line.quantity) throw new ConflictException(`${p.name} 库存不足，当前可用 ${p.stock} 件`);
+        if (!INBOUND_TYPES.has(type) && Number(p.stock) < line.quantity) throw new ConflictException(`${p.name} 库存不足，当前可用 ${p.stock} 件`);
         costAtSale.set(line.productId, Number((p as any).cost));
       }
       const id = randomUUID();
       const createdAt = new Date().toISOString();
       const seq = Number((this.db.prepare('SELECT count(*) AS n FROM orders').get() as any).n) + 1;
-      const number = `${type === 'purchase' ? 'PO' : 'SO'}-${createdAt.slice(0, 10).replaceAll('-', '')}-${String(seq).padStart(4, '0')}`;
+      const number = `${NUMBER_PREFIX[type]}-${createdAt.slice(0, 10).replaceAll('-', '')}-${String(seq).padStart(4, '0')}`;
       this.db.prepare('INSERT INTO orders VALUES(?,?,?,?,?,?,?)').run(id, number, type, partner, note, total, createdAt);
       for (const line of lines) {
-        const delta = type === 'purchase' ? line.quantity : -line.quantity;
+        const delta = INBOUND_TYPES.has(type) ? line.quantity : -line.quantity;
+        // 采购行用进价当成本；其余类型用商品当前成本作为成本基础（销售毛利、退货冲减、报损金额都基于它）
         const unitCost = type === 'purchase' ? line.unitPrice : (costAtSale.get(line.productId) ?? 0);
         this.db.prepare('INSERT INTO order_lines (id,orderId,productId,quantity,unitPrice,unitCost) VALUES(?,?,?,?,?,?)').run(randomUUID(), id, line.productId, line.quantity, line.unitPrice, unitCost);
         this.db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(delta, line.productId);
