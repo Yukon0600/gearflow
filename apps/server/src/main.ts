@@ -13,7 +13,23 @@ import { Audit } from './audit';
 class HealthController {
   @Get()
   health() {
-    return { status: 'ok', service: 'gearflow-server' };
+    // 顺带探活数据库：外部监控只调这个接口就能判断「服务+存储」是否都正常
+    let db = 'ok';
+    let productCount = 0;
+    try {
+      const row = store.db.prepare('SELECT count(*) AS n FROM products').get() as any;
+      productCount = Number(row.n);
+    } catch {
+      db = 'error';
+    }
+    return {
+      status: db === 'ok' ? 'ok' : 'degraded',
+      service: 'gearflow-server',
+      db,
+      productCount,
+      uptime: Math.round(process.uptime()),
+      version: '1.3.0',
+    };
   }
 }
 
@@ -47,13 +63,22 @@ class InventoryController {
   }
   @Post('orders') order(@Body() body: any) { return store.createOrder(body); }
   @Post('partners') partner(@Body() body: any) { return store.savePartner(body); }
-  @Patch('partners/:id') updatePartner(@Param('id') id:string,@Body() body:any) { return store.savePartner(body,id); }
+  @Patch('partners/:id') updatePartner(@Param('id') id: string, @Body() body: any) {
+    // PATCH 语义：只改传进来的字段
+    const existing = store.partners().find((p: any) => p.id === id);
+    if (!existing) throw new NotFoundException('往来单位不存在');
+    return store.savePartner({ ...existing, ...body }, id);
+  }
   @Post('drafts') draft(@Body() body:any) { return store.saveDraft(body); }
   @Patch('drafts/:id') updateDraft(@Param('id') id:string,@Body() body:any) { return store.saveDraft(body,id); }
   @Post('drafts/:id/post') postDraft(@Param('id') id:string) { return store.postDraft(id); }
   @Post('stocktakes') stocktake(@Body() body:any) { return store.createStocktake(body); }
   @Post('employees') employee(@Body() body:any) { return store.workforce.saveEmployee(body); }
-  @Patch('employees/:id') updateEmployee(@Param('id') id:string,@Body() body:any) { return store.workforce.saveEmployee(body,id); }
+  @Patch('employees/:id') updateEmployee(@Param('id') id: string, @Body() body: any) {
+    const existing = store.workforce.employees().find((e: any) => e.id === id);
+    if (!existing) throw new NotFoundException('员工不存在');
+    return store.workforce.saveEmployee({ ...existing, ...body }, id);
+  }
   @Post('services') service(@Body() body:any) { return store.workforce.createService(body); }
   @Patch('services/:id/status') serviceStatus(@Param('id') id:string,@Body() body:any) { return store.workforce.transitionService(id,body?.status); }
 }
@@ -134,6 +159,13 @@ async function bootstrap() {
       next();
     });
   }
+  // 基础安全响应头：禁止内容嗅探、禁止被 iframe 嵌入、不泄漏来源页
+  app.use((req: any, res: any, next: () => void) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
   app.use((req: any, res: any, next: () => void) => {
     const path = req.path.replace(/\/$/, '');
     if (!path.startsWith('/api/') || path === '/api/health') return next();
