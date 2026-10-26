@@ -43,8 +43,8 @@ const payments = new Payments(store.db);
 class InventoryController {
   @Get('workspace') snapshot() { return store.snapshot(); }
   @Get('mobile/stock') mobileStock() { return store.mobileStock(); }
-  @Get('orders') ordersPage(@Query('page') page?: string, @Query('size') size?: string, @Query('type') type?: string, @Query('q') q?: string) {
-    return store.ordersPage(Number(page) || 1, Number(size) || 20, { type, q });
+  @Get('orders') ordersPage(@Query('page') page?: string, @Query('size') size?: string, @Query('type') type?: string, @Query('q') q?: string, @Query('status') status?: string) {
+    return store.ordersPage(Number(page) || 1, Number(size) || 20, { type, q, status });
   }
   @Get('movements') movementsPage(@Query('page') page?: string, @Query('size') size?: string, @Query('q') q?: string, @Query('direction') direction?: string) {
     return store.movementsPage(Number(page) || 1, Number(size) || 20, { q, direction });
@@ -63,7 +63,19 @@ class InventoryController {
     if (!existing) throw new NotFoundException('商品不存在');
     return store.createProduct({ ...existing, ...body }, id);
   }
-  @Post('orders') order(@Body() body: any) { return store.createOrder(body); }
+  @Post('orders') order(@Body() body: any, @Req() req: any) {
+    // 店员提交的单据先进入待审批，店长/管理员提交直接生效
+    const status = req.user?.role === 'clerk' ? 'pending' : 'posted';
+    return store.createOrder(body, { status, createdBy: String(req.user?.username || '') });
+  }
+
+  @Post('orders/:id/approve') approve(@Param('id') id: string, @Req() req: any) {
+    return store.approveOrder(id, String(req.user?.username || 'system'));
+  }
+
+  @Post('orders/:id/reject') reject(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return store.rejectOrder(id, body?.reason, String(req.user?.username || 'system'));
+  }
   @Post('partners') partner(@Body() body: any) { return store.savePartner(body); }
   @Patch('partners/:id') updatePartner(@Param('id') id: string, @Body() body: any) {
     // PATCH 语义：只改传进来的字段

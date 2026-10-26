@@ -314,6 +314,60 @@ test('账号：改角色生效、重置密码后旧 token 失效、最后一个�
   assert.equal(deleteSelf.status, 409);
 });
 
+test('审批流：店员单据待审批、店长通过后库存才动，驳回不动库存', async () => {
+  const created = await api('/api/users', {
+    method: 'POST', token: adminToken,
+    body: { username: 'approvalclerk', password: 'Clerk12345', role: 'clerk' },
+  });
+  assert.equal(created.status, 201);
+
+  const login = await api('/api/auth/login', { method: 'POST', body: { username: 'approvalclerk', password: 'Clerk12345' } });
+  const clerk = login.data.token;
+
+  const before = (await api(`/api/mobile/product/${productId}`, { token: adminToken })).data.stock;
+
+  const order = await api('/api/orders', {
+    method: 'POST', token: clerk,
+    body: { type: 'sale', partner: '审批客户', lines: [{ productId, quantity: 1, unitPrice: 15000 }] },
+  });
+  assert.equal(order.status, 201);
+  assert.equal(order.data.status, 'pending');
+
+  const during = (await api(`/api/mobile/product/${productId}`, { token: adminToken })).data.stock;
+  assert.equal(during, before, '待审批不应动库存');
+
+  const clerkApprove = await api(`/api/orders/${order.data.id}/approve`, { method: 'POST', token: clerk });
+  assert.equal(clerkApprove.status, 403, '店员不能审批');
+
+  const approved = await api(`/api/orders/${order.data.id}/approve`, { method: 'POST', token: adminToken });
+  assert.equal(approved.status, 201);
+  assert.equal(approved.data.status, 'posted');
+
+  const after = (await api(`/api/mobile/product/${productId}`, { token: adminToken })).data.stock;
+  assert.equal(after, before - 1, '通过后才扣库存');
+
+  const again = await api(`/api/orders/${order.data.id}/approve`, { method: 'POST', token: adminToken });
+  assert.equal(again.status, 409, '不能重复审批');
+
+  const second = await api('/api/orders', {
+    method: 'POST', token: clerk,
+    body: { type: 'sale', partner: '审批客户', lines: [{ productId, quantity: 1, unitPrice: 15000 }] },
+  });
+  const rejected = await api(`/api/orders/${second.data.id}/reject`, {
+    method: 'POST', token: adminToken, body: { reason: '价格需要重新确认' },
+  });
+  assert.equal(rejected.status, 201);
+  assert.equal(rejected.data.status, 'rejected');
+  assert.equal(rejected.data.rejectReason, '价格需要重新确认');
+
+  const afterReject = (await api(`/api/mobile/product/${productId}`, { token: adminToken })).data.stock;
+  assert.equal(afterReject, after, '驳回不动库存');
+
+  const pendingList = await api('/api/orders?status=pending&size=10', { token: adminToken });
+  assert.equal(pendingList.status, 200);
+  assert.equal(pendingList.data.items.every((o) => o.status === 'pending'), true);
+});
+
 test('退出登录：token 立即失效', async () => {
   const login = await api('/api/auth/login', { method: 'POST', body: { username: 'admin', password: ADMIN_PASSWORD } });
   const token = login.data.token;

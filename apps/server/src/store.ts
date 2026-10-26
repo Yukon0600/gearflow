@@ -78,6 +78,17 @@ export class Store {
       this.db.exec('PRAGMA foreign_keys=ON');
     }
 
+    // 审批流：老单据一律视为已生效，新增字段用默认值补齐
+    const orderCols = (this.db.prepare('PRAGMA table_info(orders)').all() as any[]).map((c) => String(c.name));
+    const addCol = (name: string, ddl: string) => {
+      if (!orderCols.includes(name)) this.db.exec(`ALTER TABLE orders ADD COLUMN ` + name + ` ` + ddl);
+    };
+    addCol('status', "TEXT NOT NULL DEFAULT 'posted'");
+    addCol('createdBy', "TEXT NOT NULL DEFAULT ''");
+    addCol('approvedBy', "TEXT NOT NULL DEFAULT ''");
+    addCol('approvedAt', "TEXT NOT NULL DEFAULT ''");
+    addCol('employeeId', "TEXT NOT NULL DEFAULT ''");
+    addCol('rejectReason', "TEXT NOT NULL DEFAULT ''");
     if (seed && (this.db.prepare('SELECT count(*) AS n FROM products').get() as any).n === 0) this.seed();
     if (seed) this.expandDemo();
     if (seed) this.transaction(() => seedDemoActivity(this));
@@ -98,11 +109,15 @@ export class Store {
   }
 
   /** 单据分页查询：支持按类型、关键字（单号/往来单位）过滤 */
-  ordersPage(page = 1, size = 20, filter: { type?: string; q?: string } = {}) {
+  ordersPage(page = 1, size = 20, filter: { type?: string; q?: string; status?: string } = {}) {
     const p = Math.max(Number(page) || 1, 1);
     const s = Math.min(Math.max(Number(size) || 20, 1), 100);
     const where: string[] = [];
     const params: any[] = [];
+    if (filter.status && filter.status !== 'all') {
+      where.push('status = ?');
+      params.push(filter.status);
+    }
     if (filter.type && filter.type !== 'all') {
       if (filter.type === 'return') {
         where.push("type IN ('return_in','return_out')");
@@ -223,7 +238,7 @@ export class Store {
       FROM order_lines l
       JOIN orders o ON o.id = l.orderId
       JOIN products p ON p.id = l.productId
-      WHERE o.createdAt >= ?
+      WHERE o.createdAt >= ? AND o.status = 'posted'
     `).all(fromKey) as any[];
 
     let salesTotal = 0;
@@ -345,7 +360,7 @@ export class Store {
     const prev = this.db.prepare(`
       SELECT o.type AS type, COALESCE(SUM(l.quantity * l.unitPrice), 0) AS amount
       FROM order_lines l JOIN orders o ON o.id = l.orderId
-      WHERE o.createdAt >= ? AND o.createdAt < ?
+      WHERE o.createdAt >= ? AND o.createdAt < ? AND o.status = 'posted'
       GROUP BY o.type
     `).all(prevFrom, fromKey) as any[];
     let prevSales = 0;
@@ -485,7 +500,7 @@ export class Store {
     this.db.prepare('INSERT INTO products VALUES(?,?,?,?,?,?,?,0,?,?)').run(id, sku, name, category, brand, cost, price, threshold, new Date().toISOString());
     return this.db.prepare('SELECT * FROM products WHERE id=?').get(id);
   }
-  createOrder(body: OrderInput) {
+  createOrder(body: OrderInput, options: { status?: 'pending' | 'posted'; createdBy?: string } = {}) {
     if (!body || typeof body !== 'object') throw new BadRequestException('单据数据格式错误');
     const type = body.type as OrderType;
     if (!ORDER_TYPES.includes(type)) throw new BadRequestException('无效单据类型');
@@ -502,37 +517,81 @@ export class Store {
     if (new Set(lines.map(l => l.productId)).size !== lines.length) throw new BadRequestException('相同商品请合并到一行');
     const total = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
     if (!Number.isSafeInteger(total) || total > 100000000000) throw new BadRequestException('单据金额过大');
+    const status = options.status === 'pending' ? 'pending' : 'posted';
     return this.transaction(() => {
-      // 校验的同时记住出库时的成本，用于落成本快照
+      // 提交时就校验库存，避免审批时才发现货不够；审批时会再校验一次
       const costAtSale = new Map<string, number>();
       for (const line of lines) {
-        const p = this.db.prepare('SELECT * FROM products WHERE id=?').get(line.productId);
+        const p = this.db.prepare('SELECT * FROM products WHERE id=?').get(line.productId) as any;
         if (!p) throw new BadRequestException('商品不存在');
         if (!INBOUND_TYPES.has(type) && Number(p.stock) < line.quantity) throw new ConflictException(`${p.name} 库存不足，当前可用 ${p.stock} 件`);
-        costAtSale.set(line.productId, Number((p as any).cost));
+        costAtSale.set(line.productId, Number(p.cost));
       }
       const id = randomUUID();
       const createdAt = new Date().toISOString();
       const seq = Number((this.db.prepare('SELECT count(*) AS n FROM orders').get() as any).n) + 1;
       const number = `${NUMBER_PREFIX[type]}-${createdAt.slice(0, 10).replaceAll('-', '')}-${String(seq).padStart(4, '0')}`;
-      this.db.prepare('INSERT INTO orders VALUES(?,?,?,?,?,?,?)').run(id, number, type, partner, note, total, createdAt);
+      const employeeId = type === 'sale' && body.employeeId ? stringValue(body.employeeId, '接待员工') : '';
+      this.db.prepare(`INSERT INTO orders (id,number,type,partner,note,total,createdAt,status,createdBy,approvedBy,approvedAt,employeeId,rejectReason)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(id, number, type, partner, note, total, createdAt, status, options.createdBy || '', '', '', employeeId, '');
       for (const line of lines) {
-        const delta = INBOUND_TYPES.has(type) ? line.quantity : -line.quantity;
-        // 采购行用进价当成本；其余类型用商品当前成本作为成本基础（销售毛利、退货冲减、报损金额都基于它）
+        // 采购行用进价当成本；其余类型用商品当前成本作为成本基础
         const unitCost = type === 'purchase' ? line.unitPrice : (costAtSale.get(line.productId) ?? 0);
-        this.db.prepare('INSERT INTO order_lines (id,orderId,productId,quantity,unitPrice,unitCost) VALUES(?,?,?,?,?,?)').run(randomUUID(), id, line.productId, line.quantity, line.unitPrice, unitCost);
-        this.db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(delta, line.productId);
-        const p = this.db.prepare('SELECT stock FROM products WHERE id=?').get(line.productId)!;
-        this.db.prepare('INSERT INTO movements VALUES(?,?,?,?,?,?,?)').run(randomUUID(), line.productId, id, type, delta, p.stock, createdAt);
+        this.db.prepare('INSERT INTO order_lines (id,orderId,productId,quantity,unitPrice,unitCost) VALUES(?,?,?,?,?,?)')
+          .run(randomUUID(), id, line.productId, line.quantity, line.unitPrice, unitCost);
       }
-      if (type === 'sale' && body.employeeId) this.workforce.recordSale(id, stringValue(body.employeeId, '接待员工'));
-      return { id, number, total };
+      // 已生效的单据才动库存；待审批的只落单据，审批通过后再执行
+      if (status === 'posted') this.applyOrderEffects(id, type, lines, createdAt, employeeId);
+      return { id, number, total, status };
     });
+  }
+
+  /** 单据真正生效时的副作用：改库存、写流水、计提成。创建即生效和审批通过都走这里 */
+  private applyOrderEffects(orderId: string, type: OrderType, lines: Line[], createdAt: string, employeeId: string) {
+    for (const line of lines) {
+      const p = this.db.prepare('SELECT * FROM products WHERE id=?').get(line.productId) as any;
+      if (!p) throw new BadRequestException('商品不存在');
+      if (!INBOUND_TYPES.has(type) && Number(p.stock) < line.quantity) {
+        throw new ConflictException(`${p.name} 库存不足，当前可用 ${p.stock} 件`);
+      }
+      const delta = INBOUND_TYPES.has(type) ? line.quantity : -line.quantity;
+      this.db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(delta, line.productId);
+      const after = this.db.prepare('SELECT stock FROM products WHERE id=?').get(line.productId)!;
+      this.db.prepare('INSERT INTO movements VALUES(?,?,?,?,?,?,?)').run(randomUUID(), line.productId, orderId, type, delta, after.stock, createdAt);
+    }
+    if (type === 'sale' && employeeId) this.workforce.recordSale(orderId, employeeId);
+  }
+
+  approveOrder(id: string, approver: string) {
+    return this.transaction(() => {
+      const order = this.db.prepare('SELECT * FROM orders WHERE id=?').get(id) as any;
+      if (!order) throw new NotFoundException('单据不存在');
+      if (order.status !== 'pending') throw new ConflictException('该单据已处理，不能重复审批');
+      const rows = this.db.prepare('SELECT * FROM order_lines WHERE orderId=?').all(id) as any[];
+      const lines: Line[] = rows.map((l) => ({
+        productId: String(l.productId), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice),
+      }));
+      this.applyOrderEffects(id, order.type as OrderType, lines, String(order.createdAt), String(order.employeeId || ''));
+      this.db.prepare("UPDATE orders SET status='posted', approvedBy=?, approvedAt=? WHERE id=?")
+        .run(approver, new Date().toISOString(), id);
+      return this.db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+    });
+  }
+
+  rejectOrder(id: string, reason: string, approver: string) {
+    const order = this.db.prepare('SELECT * FROM orders WHERE id=?').get(id) as any;
+    if (!order) throw new NotFoundException('单据不存在');
+    if (order.status !== 'pending') throw new ConflictException('该单据已处理，不能重复审批');
+    const text = reason === undefined || reason === '' ? '未填写原因' : stringValue(reason, '驳回原因', 200);
+    this.db.prepare("UPDATE orders SET status='rejected', rejectReason=?, approvedBy=?, approvedAt=? WHERE id=?")
+      .run(text, approver, new Date().toISOString(), id);
+    return this.db.prepare('SELECT * FROM orders WHERE id=?').get(id);
   }
 
   partners() {
     return this.db.prepare('SELECT * FROM partners ORDER BY createdAt DESC').all().map(p=>{
-      const transactions=this.db.prepare('SELECT id,number,total,createdAt FROM orders WHERE partner=? AND type=? ORDER BY createdAt DESC').all(p.name,p.kind==='supplier'?'purchase':'sale');
+      const transactions=this.db.prepare("SELECT id,number,total,createdAt FROM orders WHERE partner=? AND type=? AND status='posted' ORDER BY createdAt DESC").all(p.name,p.kind==='supplier'?'purchase':'sale');
       return {...p,transactions,total:transactions.reduce((a,o)=>a+Number(o.total),0)};
     });
   }

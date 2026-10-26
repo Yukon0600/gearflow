@@ -75,7 +75,7 @@ export class Payments {
     // 应收看销售与销售退货；应付看采购与采购退货
     const billedTypes = direction === 'in' ? ['sale'] : ['purchase'];
     const returnedTypes = direction === 'in' ? ['return_in'] : ['return_out'];
-    const orders = this.db.prepare('SELECT partner, type, total FROM orders').all() as any[];
+    const orders = this.db.prepare("SELECT partner, type, total FROM orders WHERE status='posted'").all() as any[];
     for (const o of orders) {
       if (billedTypes.includes(o.type)) ensure(String(o.partner)).billed += Number(o.total);
       else if (returnedTypes.includes(o.type)) ensure(String(o.partner)).returned += Number(o.total);

@@ -36,6 +36,25 @@
 
 前端「库存流水」页已改为服务端分页 + 加载更多，避免一次拉全量；商品与单据列表数据量小，仍用前端分页。
 
+## 审批流
+
+单据有 `status`：`posted`（已生效）、`pending`（待审批）、`rejected`（已驳回）。
+
+- 店员提交 → `pending`：**只落单据，不动库存、不写流水、不进报表、不计提成**；
+- 店长/管理员提交 → 直接 `posted`；
+- 店长/管理员可通过 `POST /api/orders/:id/approve` 通过（此时才执行库存与提成落账），或 `POST /api/orders/:id/reject` 驳回并留下原因；
+- 已处理的单据不能再审批（409），店员调用审批接口返回 403。
+
+老库升级时所有历史单据补成 `posted`，`createdBy` / `approvedBy` 为空，行为与升级前一致。
+
+接口：
+
+```
+GET  /api/orders?status=pending|posted|rejected
+POST /api/orders/:id/approve
+POST /api/orders/:id/reject   { reason }
+```
+
 ## 小程序开单
 
 支持一次添加多行商品：从库存页或详情页进入后，点「添加商品」从弹层选择，逐行改数量和单价，底部实时合计，提交时一次性 `POST /api/orders`（后端本来就支持多行）。
