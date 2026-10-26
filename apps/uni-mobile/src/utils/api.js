@@ -80,6 +80,9 @@ export function timeAgo(iso) {
 export const MOVEMENT_LABEL = {
   purchase: '采购入库',
   sale: '销售出库',
+  return_in: '销售退货',
+  return_out: '采购退货',
+  scrap: '报损',
   stocktake: '盘点调整',
   opening: '期初建账',
 };

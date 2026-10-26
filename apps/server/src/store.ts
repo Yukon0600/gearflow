@@ -96,6 +96,67 @@ export class Store {
   orders() {
     return this.db.prepare('SELECT * FROM orders ORDER BY createdAt DESC, rowid DESC').all().map(o => ({ ...o, lines: this.db.prepare('SELECT l.*, p.name, p.sku FROM order_lines l JOIN products p ON p.id=l.productId WHERE orderId=?').all(o.id) }));
   }
+
+  /** 单据分页查询：支持按类型、关键字（单号/往来单位）过滤 */
+  ordersPage(page = 1, size = 20, filter: { type?: string; q?: string } = {}) {
+    const p = Math.max(Number(page) || 1, 1);
+    const s = Math.min(Math.max(Number(size) || 20, 1), 100);
+    const where: string[] = [];
+    const params: any[] = [];
+    if (filter.type && filter.type !== 'all') {
+      if (filter.type === 'return') {
+        where.push("type IN ('return_in','return_out')");
+      } else {
+        where.push('type = ?');
+        params.push(filter.type);
+      }
+    }
+    const q = String(filter.q || '').trim();
+    if (q) {
+      where.push('(number LIKE ? OR partner LIKE ?)');
+      params.push(`%${q}%`, `%${q}%`);
+    }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const total = Number((this.db.prepare(`SELECT count(*) AS n FROM orders ${clause}`).get(...params) as any).n);
+    const rows = this.db.prepare(
+      `SELECT * FROM orders ${clause} ORDER BY createdAt DESC, rowid DESC LIMIT ? OFFSET ?`,
+    ).all(...params, s, (p - 1) * s) as any[];
+    const items = rows.map((o) => ({
+      ...o,
+      lines: this.db.prepare('SELECT l.*, p.name, p.sku FROM order_lines l JOIN products p ON p.id=l.productId WHERE orderId=?').all(o.id),
+    }));
+    return { page: p, size: s, total, pages: Math.max(Math.ceil(total / s), 1), items };
+  }
+
+  /** 流水分页查询：支持关键字与出入库方向过滤 */
+  movementsPage(page = 1, size = 20, filter: { q?: string; direction?: string } = {}) {
+    const p = Math.max(Number(page) || 1, 1);
+    const s = Math.min(Math.max(Number(size) || 20, 1), 100);
+    const where: string[] = [];
+    const params: any[] = [];
+    const q = String(filter.q || '').trim();
+    if (q) {
+      where.push('(p.name LIKE ? OR p.sku LIKE ? OR m.orderId LIKE ?)');
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    }
+    if (filter.direction === 'in') where.push('m.delta > 0');
+    if (filter.direction === 'out') where.push('m.delta < 0');
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const base = `FROM movements m JOIN products p ON p.id=m.productId`;
+    const total = Number((this.db.prepare(`SELECT count(*) AS n ${base} ${clause}`).get(...params) as any).n);
+    const items = this.db.prepare(`
+      SELECT m.id, m.productId, m.type, m.delta, m.balance, m.createdAt,
+             p.name, p.sku, COALESCE(o.number, c.number) AS orderNumber, o.partner
+      ${base}
+      LEFT JOIN orders o ON o.id = m.orderId
+      LEFT JOIN stocktake_movements sm ON sm.movementId = m.id
+      LEFT JOIN stocktakes c ON c.id = sm.stocktakeId
+      ${clause}
+      ORDER BY m.createdAt DESC, m.rowid DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, s, (p - 1) * s) as any[];
+    return { page: p, size: s, total, pages: Math.max(Math.ceil(total / s), 1), items };
+  }
   snapshot() { return { products: this.products(), orders: this.orders(), movements: this.movements(), categories, partners:this.partners(), drafts:this.drafts(), stocktakes:this.stocktakes(), employees:this.workforce.employees(), services:this.workforce.services(), commissions:this.workforce.commissions() }; }
   /** 移动端（小程序 / 鸿蒙）用的精简库存清单，只带必要字段。 */
   mobileStock() {

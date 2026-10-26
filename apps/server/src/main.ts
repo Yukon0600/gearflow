@@ -25,6 +25,12 @@ const audit = new Audit(store.db);
 class InventoryController {
   @Get('workspace') snapshot() { return store.snapshot(); }
   @Get('mobile/stock') mobileStock() { return store.mobileStock(); }
+  @Get('orders') ordersPage(@Query('page') page?: string, @Query('size') size?: string, @Query('type') type?: string, @Query('q') q?: string) {
+    return store.ordersPage(Number(page) || 1, Number(size) || 20, { type, q });
+  }
+  @Get('movements') movementsPage(@Query('page') page?: string, @Query('size') size?: string, @Query('q') q?: string, @Query('direction') direction?: string) {
+    return store.movementsPage(Number(page) || 1, Number(size) || 20, { q, direction });
+  }
   @Get('mobile/product/:id') mobileProduct(@Param('id') id: string) {
     const product = store.mobileProduct(id);
     if (!product) throw new NotFoundException('商品不存在');
