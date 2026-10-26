@@ -1,0 +1,48 @@
+flowchart TB
+  subgraph L1["接入层"]
+    UI["对话面板<br/>（Web / 小程序）"]
+    API["«component» NlController<br/>POST /api/nl/execute"]
+  end
+
+  subgraph L2["解析层"]
+    P["«interface» IntentParser"]
+    RULE["RuleIntentParser<br/>关键词 + 槽位"]
+    LLM["LlmIntentParser<br/>函数调用（可选）"]
+  end
+
+  subgraph L3["治理层"]
+    REG["CommandRegistry<br/>动作白名单"]
+    DEF["CommandDef<br/>schema · requiredRole · write"]
+    VAL["CommandValidator<br/>商品/客户消歧"]
+    GUARD["PermissionGuard<br/>复用 RBAC"]
+  end
+
+  subgraph L4["执行层"]
+    CONF["ConfirmationService<br/>一次性令牌 120s"]
+    EXEC["CommandExecutor<br/>分派到业务方法"]
+    AUDIT["NlAudit<br/>原文+意图+结果"]
+  end
+
+  subgraph L5["业务层（已有）"]
+    STORE["Store"]
+    PAY["Payments"]
+    WF["Workforce"]
+  end
+
+  UI -->|"一句话"| API
+  API --> P
+  P -.->|"默认"| RULE
+  P -.->|"复杂句式"| LLM
+  API --> REG
+  REG --> DEF
+  API --> VAL
+  VAL --> DEF
+  API --> GUARD
+  API -->|"写操作"| CONF
+  CONF -->|"确认后放行"| EXEC
+  API -->|"只读"| EXEC
+  EXEC --> STORE
+  EXEC --> PAY
+  EXEC --> WF
+  API --> AUDIT
+  API -->|"结果 + 链接"| UI

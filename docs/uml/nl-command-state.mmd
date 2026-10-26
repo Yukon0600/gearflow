@@ -1,0 +1,45 @@
+stateDiagram-v2
+  direction TB
+
+  state "待输入" as Idle
+  state "解析中" as Parsing
+  state "待补全" as NeedSlots {
+    state "缺商品" as MissProduct
+    state "缺客户" as MissPartner
+    state "商品歧义" as Ambiguous
+  }
+  state "待确认" as Pending
+  state "执行中" as Running
+  state "成功" as Done
+  state "失败" as Failed
+  state "已拒绝" as Denied
+  state "已取消" as Cancelled
+
+  [*] --> Idle
+  Idle --> Parsing : 提交一句话
+  Parsing --> NeedSlots : 缺槽位 / 名称歧义
+  NeedSlots --> Parsing : 用户补全或点选候选
+  Parsing --> Denied : 无权限或不支持的动作
+  Parsing --> Pending : 写操作（下单、审批、收款）
+  Parsing --> Running : 只读查询（库存、报表）
+
+  Pending --> Running : 用户确认
+  Pending --> Cancelled : 用户取消 / 120 秒超时
+
+  Running --> Done : 业务方法返回成功
+  Running --> Failed : 库存不足 / 校验失败 / 异常
+
+  Done --> [*]
+  Failed --> [*]
+  Denied --> [*]
+  Cancelled --> [*]
+
+  note right of Pending
+    确认令牌一次性、绑定用户
+    重放或他人使用直接拒绝
+  end note
+
+  note right of Failed
+    失败也要写审计，
+    便于复盘「为什么没执行」
+  end note

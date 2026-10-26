@@ -1,0 +1,41 @@
+sequenceDiagram
+  autonumber
+  actor U as 用户
+  participant UI as 对话面板
+  participant API as NlController
+  participant P as 解析与规则层
+  participant C as ConfirmationService
+  participant E as CommandExecutor
+  participant S as 业务层 Store/Payments
+  participant A as NlAudit
+
+  U->>UI: 给星河电竞开一张 2 台 5070 的销售单
+  UI->>API: POST /api/nl/execute { text }
+  API->>P: parse + validate + 鉴权
+  P-->>API: Intent + CommandDef + 用户权限结论
+
+  alt 缺少信息
+    API-->>UI: 请补充：客户 / 商品 / 数量
+    U->>UI: 点选候选或补充一句
+    UI->>API: 携带补充内容重试
+  end
+
+  alt 写操作
+    API->>C: issue(user, intent)
+    C-->>API: confirmToken（120 秒，一次性）
+    API-->>UI: 预览卡片：类型、客户、商品、数量、金额
+    U->>UI: 点击确认执行
+    UI->>API: POST { confirmToken }
+    API->>C: consume(token, user)
+    C-->>API: Intent（校验归属与有效期）
+  else 只读查询
+    Note over API: 跳过确认，直接执行
+  end
+
+  API->>E: run(intent, user)
+  E->>S: createOrder / report / reconcile
+  S-->>E: 业务结果
+  E-->>API: summary + link
+  API->>A: 记录原文、意图、结果、耗时
+  API-->>UI: 已创建 SO-20261026-0061，共 12,598.00 元
+  UI-->>U: 结果 + 查看单据链接
