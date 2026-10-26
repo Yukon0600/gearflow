@@ -10,9 +10,10 @@ import ReturnsPanel from './components/ReturnsPanel.vue'
 import ReconcilePanel from './components/ReconcilePanel.vue'
 import ApprovalPanel from './components/ApprovalPanel.vue'
 import PrintSheet from './components/PrintSheet.vue'
+import HelpDrawer from './components/HelpDrawer.vue'
 import ThemePicker from './components/ThemePicker.vue'
 import AdminLayout from './vendor/soybean/libs/admin-layout/index.vue'
-import { Boxes, ArrowDownLeft, ArrowUpRight, ArrowRight, Plus, Search, ChevronDown, ChevronLeft, ChevronRight, Download, SlidersHorizontal, Cpu, CircuitBoard, MemoryStick, HardDrive, Mouse, Zap, Monitor, X, Check, RefreshCw, Package, Layers, Activity, Command, Menu, CircleAlert, ExternalLink, LayoutGrid, List, Pencil, ArrowDownUp, Users, ClipboardCheck, FileText, Save, HandCoins } from 'lucide-vue-next'
+import { Boxes, ArrowDownLeft, ArrowUpRight, ArrowRight, Plus, Search, ChevronDown, ChevronLeft, ChevronRight, Download, SlidersHorizontal, Cpu, CircuitBoard, MemoryStick, HardDrive, Mouse, Zap, Monitor, X, Check, RefreshCw, Package, Layers, Activity, Command, Menu, CircleAlert, ExternalLink, LayoutGrid, List, Pencil, ArrowDownUp, Users, ClipboardCheck, FileText, Save, HandCoins, CircleHelp } from 'lucide-vue-next'
 
 const draftId=ref(null), orderTab=ref('posted'), changed=ref([])
 const emit = defineEmits(['logout', 'session-expired'])
@@ -89,6 +90,12 @@ async function loadLedger(reset = true) {
 }
 function loadMoreLedger() { ledgerPage.value += 1; loadLedger(false) }
 watch([page, search], () => { if (page.value === 'ledger') loadLedger(true) })
+// 帮助与新手引导
+const helpOpen = ref(false)
+const showGuide = ref(false)
+onMounted(() => { try { showGuide.value = !localStorage.getItem('gf_guide_done') } catch {} })
+function dismissGuide() { try { localStorage.setItem('gf_guide_done', '1') } catch {} showGuide.value = false }
+function jumpFromHelp(id) { helpOpen.value = false; navigate(id) }
 // 单据打印：弹出 A4 预览，点打印走浏览器打印
 const printOrder = ref(null)
 function startPrint(order) { if (!order) return; dialog.value?.close(); modal.value = ''; printOrder.value = order }
@@ -126,7 +133,7 @@ onMounted(load)
    <header class="topbar"><button class="icon-button layout-toggle" :aria-label="isMobile?'打开导航':collapsed?'展开侧栏':'折叠侧栏'" @click="siderCollapse=!siderCollapse"><Menu :size="20"/></button><div class="breadcrumbs">工作空间 <ChevronRight :size="13"/><b>{{title}}</b></div><div class="top-right"><ThemePicker/><span class="demo-label">本地演示 · 单工作区</span><button class="icon-button" aria-label="刷新数据" @click="load"><RefreshCw :size="16" :class="{spin:loading}"/></button><button class="icon-button" style="width:auto;padding:0 6px;font-size:11px" @click="emit('logout')" aria-label="退出登录">退出</button><span class="avatar">GF</span></div></header>
   </template>
   <template #tab><div class="workspace-tabs"><button v-for="n in navVisible" :key="n.id" :class="{selected:page===n.id}" @click="navigate(n.id)"><component :is="n.icon" :size="13"/>{{n.label}}</button><span>GEARFLOW / 工作台</span></div></template>
-   <div class="content">
+   <div class="content"><div v-if="showGuide" class="guide-banner"><div class="guide-main"><b>第一次用？三步就能跑通</b><span>① 建商品 → ② 采购入库 → ③ 销售出库</span></div><div class="guide-actions"><button class="button primary" @click="open('product')">先建一个商品</button><button class="button secondary" @click="navigate('purchase')">看看采购入库</button><button class="guide-close" aria-label="关闭引导" @click="dismissGuide">×</button></div></div>
     <WorkforcePanel v-if="['employees','services','commissions'].includes(page)" :key="page" :page="page" :data="data" :api="api" @refresh="load" @notify="notify"/>
     <BusinessPanel v-else-if="page==='partners'||page==='stocktake'" :key="page" :page="page" :data="data" :api="api" @refresh="load" @notify="notify"/>
     <ReportsPanel v-else-if="page==='reports'" :api="api" @notify="notify"/>
@@ -173,6 +180,8 @@ onMounted(load)
     <form v-else @submit.prevent="submit"><div class="form-body"><p class="form-intro">{{modal==='edit'?'修改价格、品牌和预警值。库存数量只能通过业务单据变更。':modal==='product'?'建立商品档案，初始库存为 0。创建后通过采购入库增加库存。':'确认后立即记账，单据、库存和流水将同步更新。'}}</p><template v-if="modal==='product'||modal==='edit'"><label>商品名称<input v-model="product.name" required maxlength="120" placeholder="例如：AMD Ryzen 7 9700X"/></label><div class="form-grid"><label>SKU 编码<input v-model="product.sku" required maxlength="50" placeholder="CPU-AMD-9700X"/></label><label>品牌<input v-model="product.brand" required maxlength="40" placeholder="例如：AMD"/></label><label>商品分类<select v-model="product.category"><option v-for="c in data.categories" :key="c">{{c}}</option></select></label><label>预警库存<input v-model="product.threshold" type="number" min="0" max="1000000" step="1" required/></label><label>采购参考价（元）<input v-model="product.cost" type="number" min="0" max="1000000" step="0.01" required placeholder="0.00"/></label><label>销售价（元）<input v-model="product.price" type="number" min="0" max="1000000" step="0.01" required placeholder="0.00"/></label><label>图片地址（选填）<input v-model="product.image" maxlength="500" placeholder="/art/gpu.svg 或 https://..."/></label></div></template><template v-else><label>{{modal==='purchase'?'供应商名称':'客户名称'}}<input list="partner-options" v-model="order.partner" required maxlength="120" :placeholder="modal==='purchase'?'例如：深圳联强电子':'例如：极客装机工作室'"/></label><datalist id="partner-options"><option v-for="p in partnerOptions" :key="p.id" :value="p.name"/></datalist><label v-if="modal==='sale'">接待销售员工<select v-model="order.employeeId"><option value="">不指定 · 不计员工提成</option><option v-for="e in (data.employees||[]).filter(e=>e.active)" :key="e.id" :value="e.id">{{e.name}} · 销售提成 {{e.salesBps/100}}%</option></select></label><div class="line-title">商品明细 <button type="button" class="text-button" @click="order.lines.push({productId:'',quantity:1,price:''})" :disabled="order.lines.length>=50"><Plus :size="14"/>添加一行</button></div><div v-for="(l,i) in order.lines" :key="i" class="form-line"><label class="line-product">商品<select aria-label="商品" v-model="l.productId" @change="updateLine(l)" required><option disabled value="">选择商品</option><option v-for="p in data.products" :key="p.id" :value="p.id">{{p.name}} · 库存 {{p.stock}}</option></select></label><label>数量<input v-model="l.quantity" type="number" required min="1" max="1000000" step="1"/></label><label>单价（元）<input v-model="l.price" type="number" required min="0" max="1000000" step="0.01"/></label><button type="button" class="icon-button remove-line" aria-label="删除商品行" :disabled="order.lines.length===1" @click="order.lines.splice(i,1)"><X :size="16"/></button></div><label>备注（选填）<textarea v-model="order.note" maxlength="500" placeholder="补充本次交易说明" rows="3"></textarea></label><div class="order-total"><span>单据合计</span><strong>{{money(amount)}}</strong></div></template><p v-if="formError" class="form-error" role="alert"><CircleAlert :size="16"/>{{formError}}</p></div><div class="drawer-footer"><button type="button" class="button secondary" @click="close" :disabled="saving">取消</button><button v-if="modal==='purchase'||modal==='sale'" class="button secondary" type="button" :disabled="saving" @click="saveDraft"><Save :size="15"/>保存草稿</button><button class="button primary" type="submit" :disabled="saving"><RefreshCw v-if="saving" :size="15" class="spin"/><Check v-else :size="15"/>{{saving?'正在保存…':modal==='edit'?'保存修改':modal==='product'?'创建商品':modal==='purchase'?'确认入库':'确认出库'}}</button></div></form>
    </div>
   </dialog>
+  <button class="help-fab" aria-label="使用指南" title="使用指南" @click="helpOpen = true"><CircleHelp :size="20"/></button>
+  <HelpDrawer v-if="helpOpen" @close="helpOpen = false" @jump="jumpFromHelp" />
   <PrintSheet v-if="printOrder" :order="printOrder" @close="printOrder=null" />
  </div>
 </template>
