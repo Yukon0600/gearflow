@@ -135,6 +135,7 @@ test('单据：采购入库 → 销售出库 → 库存与流水果同步', asyn
   assert.equal(purchase.status, 201);
   assert.match(purchase.data.number, /^PO-\d{8}-\d{4}$/);
 
+
   const sale = await api('/api/orders', {
     method: 'POST', token: adminToken,
     body: { type: 'sale', partner: 'E2E 客户', lines: [{ productId, quantity: 3, unitPrice: 15000 }] },
@@ -212,6 +213,40 @@ test('分页：单据与流水按页返回，越界页返回空数组', async ()
   assert.ok(inbound.data.items.every((m) => m.delta > 0));
 });
 
+test('对账：应收应付按往来单位汇总，登记收款后余额下降、超额被拒', async () => {
+  const rec = await api('/api/reconcile', { token: adminToken });
+  assert.equal(rec.status, 200);
+  assert.ok(Array.isArray(rec.data.receivables.items));
+  assert.ok(Array.isArray(rec.data.payables.items));
+
+  const customer = rec.data.receivables.items.find((i) => i.partner === 'E2E 客户');
+  assert.ok(customer, 'E2E 客户应有应收');
+  const balance = customer.balance;
+  assert.ok(balance > 0);
+
+  const pay = await api('/api/payments', {
+    method: 'POST', token: adminToken,
+    body: { direction: 'in', partner: 'E2E 客户', amount: 1000, method: 'wechat', note: 'e2e 收款' },
+  });
+  assert.equal(pay.status, 201);
+
+  const after = await api('/api/reconcile', { token: adminToken });
+  const updated = after.data.receivables.items.find((i) => i.partner === 'E2E 客户');
+  assert.equal(updated.balance, balance - 1000);
+
+  const tooMuch = await api('/api/payments', {
+    method: 'POST', token: adminToken,
+    body: { direction: 'in', partner: 'E2E 客户', amount: 99999999, method: 'bank' },
+  });
+  assert.equal(tooMuch.status, 409);
+  assert.match(tooMuch.data.message, /余额/);
+
+  const list = await api('/api/payments?page=1&size=5', { token: adminToken });
+  assert.equal(list.status, 200);
+  assert.ok(list.data.total >= 1);
+  assert.equal(list.data.items[0].partner, 'E2E 客户');
+});
+
 test('审计：写操作留下记录，未登录/失败请求不记录', async () => {
   // 审计在响应 finish 之后写入，稍等一下再查
   await new Promise((r) => setTimeout(r, 300));
@@ -245,6 +280,12 @@ test('权限：店员能开单但改不了商品、看不到报表和账号', as
     body: { name: '越权', sku: 'NOPE-1', category: '显卡', brand: 'X', cost: 1, price: 2, threshold: 1 },
   })).status, 403);
 
+
+  assert.equal((await api('/api/reconcile', { token: clerkToken })).status, 200, '店员可以看对账');
+  assert.equal((await api('/api/payments', {
+    method: 'POST', token: clerkToken,
+    body: { direction: 'in', partner: 'E2E 客户', amount: 100, method: 'cash' },
+  })).status, 403, '店员不能登记收付款');
   const sale = await api('/api/orders', {
     method: 'POST', token: clerkToken,
     body: { type: 'sale', partner: '店员客户', lines: [{ productId, quantity: 1, unitPrice: 15000 }] },

@@ -23,12 +23,12 @@
       <article>
         <div class="metric-label">销售额</div>
         <strong>{{ money(report.salesTotal) }}</strong>
-        <div class="metric-bottom">{{ report.salesOrderCount }} 笔销售 · 客单价 {{ money(report.avgOrder) }}</div>
+        <div class="metric-bottom">{{ report.salesOrderCount }} 笔销售 · 客单价 {{ money(report.avgOrder) }}<span v-if="report.comparison.salesGrowth !== null" class="delta" :class="report.comparison.salesGrowth >= 0 ? 'up' : 'down'">{{ report.comparison.salesGrowth >= 0 ? '↑' : '↓' }} {{ Math.abs(report.comparison.salesGrowth) }}%</span></div>
       </article>
       <article>
         <div class="metric-label">采购额</div>
         <strong>{{ money(report.purchaseTotal) }}</strong>
-        <div class="metric-bottom">{{ report.purchaseOrderCount }} 笔采购入库</div>
+        <div class="metric-bottom">{{ report.purchaseOrderCount }} 笔采购入库<span v-if="report.comparison.purchaseGrowth !== null" class="delta" :class="report.comparison.purchaseGrowth >= 0 ? 'up' : 'down'">{{ report.comparison.purchaseGrowth >= 0 ? '↑' : '↓' }} {{ Math.abs(report.comparison.purchaseGrowth) }}%</span></div>
       </article>
       <article>
         <div class="metric-label">毛利</div>
@@ -36,9 +36,9 @@
         <div class="metric-bottom">毛利率 <b>{{ (report.grossMarginBps / 100).toFixed(1) }}%</b></div>
       </article>
       <article class="warning-metric">
-        <div class="metric-label">库存占用</div>
+        <div class="metric-label">库存占用 / 周转</div>
         <strong>{{ money(report.stockValue) }}</strong>
-        <div class="metric-bottom">{{ report.productCount }} 个 SKU · {{ report.lowCount }} 项待补货</div>
+        <div class="metric-bottom">{{ report.productCount }} 个 SKU · {{ report.lowCount }} 项待补货<span class="delta" :class="report.turnover.days !== null && report.turnover.days <= 30 ? 'up' : 'down'">{{ turnoverText }}</span></div>
       </article>
     </section>
 
@@ -89,7 +89,44 @@
           <li v-for="c in report.categoryShare" :key="c.name">
             <div class="share-head"><b>{{ c.name }}</b><span>{{ c.ratio }}%</span></div>
             <div class="share-bar"><i :style="{ width: c.ratio + '%' }" /></div>
-            <small>{{ money(c.amount) }}</small>
+            <small>{{ money(c.amount) }} · 毛利 {{ money(c.profit || 0) }}<text v-if="c.marginBps"> · {{ (c.marginBps / 100).toFixed(1) }}%</text></small>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <div v-if="report" class="split">
+      <section class="data-panel">
+        <div class="panel-title"><h2>客户排行</h2><span>按销售净额</span></div>
+        <div v-if="!report.topPartners.length" class="empty-small">这段时间还没有客户成交</div>
+        <ul v-else class="rank-list">
+          <li v-for="(c, i) in report.topPartners" :key="c.name">
+            <span class="rank" :class="{ top: i < 3 }">{{ i + 1 }}</span>
+            <div class="rank-main">
+              <b>{{ c.name }}</b>
+              <div class="rank-bar"><i :style="{ width: partnerRatio(c.amount) }" /></div>
+            </div>
+            <div class="rank-side">
+              <strong>{{ money(c.amount) }}</strong>
+              <small>{{ c.orders }} 笔销售</small>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="data-panel">
+        <div class="panel-title"><h2>滞销商品</h2><span>有库存 · 本期无出库</span></div>
+        <div v-if="!report.slowMovers.length" class="empty-small">没有滞销商品，周转健康</div>
+        <ul v-else class="rank-list">
+          <li v-for="p in report.slowMovers" :key="p.id">
+            <div class="rank-main">
+              <b>{{ p.name }}</b>
+              <div class="rank-bar"><i :style="{ width: slowRatio(p.tied) }" /></div>
+            </div>
+            <div class="rank-side">
+              <strong>{{ p.stock }} 件</strong>
+              <small>占用 {{ money(p.tied) }}</small>
+            </div>
           </li>
         </ul>
       </section>
@@ -100,7 +137,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 const props = defineProps({
   api: { type: Function, required: true },
@@ -132,6 +169,23 @@ function heightOf(value) {
 function ratioOf(amount) {
   const top = report.value?.topProducts?.[0]?.amount || 1;
   return Math.max(Math.round((amount / top) * 100), 2) + '%';
+}
+
+const turnoverText = computed(() => {
+  const d = report.value?.turnover?.days;
+  if (d === null || d === undefined) return '暂无出库';
+  if (d > 365) return '周转 >365 天';
+  return '周转 ' + d + ' 天';
+});
+
+function partnerRatio(amount) {
+  const top = report.value?.topPartners?.[0]?.amount || 1;
+  return Math.max(Math.round((amount / top) * 100), 2) + '%';
+}
+
+function slowRatio(tied) {
+  const top = report.value?.slowMovers?.[0]?.tied || 1;
+  return Math.max(Math.round((tied / top) * 100), 2) + '%';
 }
 
 async function load() {
@@ -189,6 +243,23 @@ onMounted(load);
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.delta {
+  margin-left: 8px;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.delta.up {
+  color: #9fdcbf;
+  background: rgba(124, 224, 184, 0.12);
+}
+
+.delta.down {
+  color: #e5b98a;
+  background: rgba(255, 180, 84, 0.12);
 }
 
 .dot {

@@ -8,6 +8,7 @@ import { API_PREFIX } from '@gearflow/shared';
 import { Auth, ROLE_LABEL, ROLES, type Role } from './auth';
 import { canAccess, abilities } from './permissions';
 import { Audit } from './audit';
+import { Payments } from './payments';
 
 @Controller('health')
 class HealthController {
@@ -36,6 +37,7 @@ class HealthController {
 const store = new Store(process.env.GEARFLOW_DB_PATH || resolve(__dirname, '../data/gearflow.sqlite'));
 const auth = new Auth(store.db);
 const audit = new Audit(store.db);
+const payments = new Payments(store.db);
 
 @Controller()
 class InventoryController {
@@ -138,7 +140,33 @@ class AuditController {
   }
 }
 
-@Module({ controllers: [HealthController, InventoryController, UsersController, ReportsController, AuditController] })
+@Controller('payments')
+class PaymentsController {
+  @Get()
+  list(
+    @Query('page') page?: string,
+    @Query('size') size?: string,
+    @Query('direction') direction?: string,
+    @Query('partner') partner?: string,
+  ) {
+    return payments.list(Number(page) || 1, Number(size) || 20, { direction, partner });
+  }
+
+  @Post()
+  create(@Body() body: any, @Req() req: any) {
+    return payments.create(body, String(req.user?.username || 'system'));
+  }
+}
+
+@Controller('reconcile')
+class ReconcileController {
+  @Get()
+  overview() {
+    return payments.reconcile();
+  }
+}
+
+@Module({ controllers: [HealthController, InventoryController, UsersController, ReportsController, AuditController, PaymentsController, ReconcileController] })
 class AppModule {}
 
 async function bootstrap() {

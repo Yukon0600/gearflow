@@ -217,7 +217,7 @@ export class Store {
     const fromKey = new Date(fromMs).toISOString().slice(0, 10);
 
     const rows = this.db.prepare(`
-      SELECT o.createdAt AS createdAt, o.type AS type, o.number AS number,
+      SELECT o.createdAt AS createdAt, o.type AS type, o.number AS number, o.partner AS partner,
              l.quantity AS quantity, l.unitPrice AS unitPrice, l.unitCost AS unitCost,
              p.id AS productId, p.name AS name, p.category AS category, p.cost AS cost
       FROM order_lines l
@@ -234,7 +234,9 @@ export class Store {
     const purchaseOrders = new Set<string>();
     const byDay = new Map<string, { sales: number; purchase: number }>();
     const byProduct = new Map<string, { id: string; name: string; qty: number; amount: number; profit: number }>();
-    const byCategory = new Map<string, number>();
+    const byCategory = new Map<string, { amount: number; profit: number }>();
+    const byPartner = new Map<string, { name: string; amount: number; orders: Set<string> }>();
+    let soldQty = 0;
 
     for (const r of rows) {
       const day = String(r.createdAt).slice(0, 10);
@@ -260,7 +262,17 @@ export class Store {
         byProduct.set(String(r.productId), p);
 
         const cat = String(r.category || '未分类');
-        byCategory.set(cat, (byCategory.get(cat) || 0) + sign * amount);
+        const catRow = byCategory.get(cat) || { amount: 0, profit: 0 };
+        catRow.amount += sign * amount;
+        catRow.profit += sign * (unit - cost) * qty;
+        byCategory.set(cat, catRow);
+        soldQty += sign * qty;
+
+        const partnerName = String(r.partner || '散客');
+        const partnerRow = byPartner.get(partnerName) || { name: partnerName, amount: 0, orders: new Set<string>() };
+        partnerRow.amount += sign * amount;
+        if (r.type === 'sale') partnerRow.orders.add(String(r.number));
+        byPartner.set(partnerName, partnerRow);
       } else if (r.type === 'scrap') {
         // 报损按成本计入损耗，不影响销售额
         scrapLoss += cost * qty;
@@ -286,17 +298,65 @@ export class Store {
       .slice(0, 8);
 
     const categories = Array.from(byCategory.entries())
-      .map(([name, amount]) => ({ name, amount }))
+      .map(([name, v]) => ({
+        name,
+        amount: v.amount,
+        profit: v.profit,
+        marginBps: v.amount ? Math.round((v.profit / v.amount) * 10000) : 0,
+      }))
       .sort((a, b) => b.amount - a.amount);
     const categoryTop = categories.slice(0, 6);
     const restAmount = categories.slice(6).reduce((s, c) => s + c.amount, 0);
-    if (restAmount > 0) categoryTop.push({ name: '其他', amount: restAmount });
+    if (restAmount > 0) categoryTop.push({ name: '其他', amount: restAmount, profit: 0, marginBps: 0 });
     const categoryShare = categoryTop.map((c) => ({
       ...c,
       ratio: salesTotal ? Math.round((c.amount / salesTotal) * 1000) / 10 : 0,
     }));
 
+    // 客户排行（按销售净额）
+    const topPartners = Array.from(byPartner.values())
+      .map((p) => ({ name: p.name, amount: p.amount, orders: p.orders.size }))
+      .filter((p) => p.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 6);
+
     const inventory = this.mobileStock();
+
+    // 滞销：有库存但本期没有出库记录的商品，按占用金额排序
+    const slowMovers = this.db.prepare(`
+      SELECT p.id, p.name, p.sku, p.stock, p.cost, p.stock * p.cost AS tied
+      FROM products p
+      WHERE p.stock > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM movements m
+          WHERE m.productId = p.id AND m.delta < 0 AND m.createdAt >= ?
+        )
+      ORDER BY tied DESC
+      LIMIT 8
+    `).all(fromKey) as any[];
+
+    // 周转：本期出库数量 / 当前库存，换算成周转天数
+    const stockQty = Number((this.db.prepare('SELECT COALESCE(SUM(stock),0) AS n FROM products').get() as any).n);
+    const turnoverTimes = stockQty > 0 ? Math.max(soldQty, 0) / stockQty : 0;
+    const turnoverDays = turnoverTimes > 0 ? Math.round((span / turnoverTimes) * 10) / 10 : null;
+
+    // 环比：上一个等长周期
+    const prevFrom = new Date(fromMs - span * 86400000).toISOString().slice(0, 10);
+    const prev = this.db.prepare(`
+      SELECT o.type AS type, COALESCE(SUM(l.quantity * l.unitPrice), 0) AS amount
+      FROM order_lines l JOIN orders o ON o.id = l.orderId
+      WHERE o.createdAt >= ? AND o.createdAt < ?
+      GROUP BY o.type
+    `).all(prevFrom, fromKey) as any[];
+    let prevSales = 0;
+    let prevPurchase = 0;
+    for (const row of prev) {
+      if (row.type === 'sale') prevSales += Number(row.amount);
+      else if (row.type === 'return_in') prevSales -= Number(row.amount);
+      else if (row.type === 'purchase') prevPurchase += Number(row.amount);
+      else if (row.type === 'return_out') prevPurchase -= Number(row.amount);
+    }
+    const growth = (current: number, previous: number) => (previous > 0 ? Math.round(((current - previous) / previous) * 1000) / 10 : null);
 
     return {
       days: span,
@@ -316,7 +376,27 @@ export class Store {
       productCount: inventory.total,
       trend,
       topProducts,
+      topPartners,
       categoryShare,
+      slowMovers: slowMovers.map((p) => ({
+        id: String(p.id),
+        name: String(p.name),
+        sku: String(p.sku),
+        stock: Number(p.stock),
+        tied: Number(p.tied),
+      })),
+      turnover: {
+        soldQty: Math.max(soldQty, 0),
+        stockQty,
+        times: Math.round(turnoverTimes * 100) / 100,
+        days: turnoverDays,
+      },
+      comparison: {
+        salesTotal: prevSales,
+        purchaseTotal: prevPurchase,
+        salesGrowth: growth(salesTotal, prevSales),
+        purchaseGrowth: growth(purchaseTotal, prevPurchase),
+      },
     };
   }
 
