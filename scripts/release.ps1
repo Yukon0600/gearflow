@@ -93,7 +93,7 @@ if ($LASTEXITCODE -ne 0) { throw '远程发布失败' }
 
 Step '7/7 冒烟验证'
 Start-Sleep -Seconds 6
-$health = & $ssh -i $KeyPath "${User}@${Host_}" "curl -fsS -m 10 http://127.0.0.1/api/health"
+$health = & $ssh -i $KeyPath "${User}@${Host_}" "curl -fsSk -m 10 https://127.0.0.1/api/health"
 Write-Host "    本机健康检查: $health"
 
 $domainCode = Get-HttpStatus 'https://timomo.store/' $false

@@ -1,6 +1,15 @@
 # GearFlow 电脑配件进销存
 
-需要 Node.js 24+（服务器使用内置 node:sqlite），根目录运行：
+## 线上地址
+
+| 项目 | 地址 |
+| --- | --- |
+| 站点 | https://timomo.store |
+| 接口 | https://timomo.store/api/health |
+| 备案 | 粤ICP备2026167701号（2026-10-28 通过审核） |
+
+HTTP 与 IP 访问均 301 跳转到 `https://timomo.store`，全站启用 HSTS。
+服务端 Node.js 24+（服务器使用内置 node:sqlite），根目录运行：
 
 ```sh
 npm install

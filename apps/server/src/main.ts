@@ -219,7 +219,11 @@ async function bootstrap() {
     const cookieToken = (req.headers.cookie || '').split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('gearflow_session='))?.slice(17) || '';
     // 小程序与鸿蒙没有浏览器 Cookie 机制，额外支持 Authorization: Bearer <token>
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '') || cookieToken;
-    const cookie = (value: string, age: number) => res.setHeader('Set-Cookie', `gearflow_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${process.env.GEARFLOW_SECURE_COOKIE === '1' ? '; Secure' : ''}`);
+    // Cookie 的 Secure 标记：HTTPS 请求必须加；用 IP 走 http 调试时不能加，否则浏览器直接丢弃
+    const overHttps = process.env.GEARFLOW_SECURE_COOKIE === '1'
+      || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https'
+      || req.secure === true;
+    const cookie = (value: string, age: number) => res.setHeader('Set-Cookie', `gearflow_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${overHttps ? '; Secure' : ''}`);
     res.setHeader('Cache-Control', 'no-store');
     if (path === '/api/auth/login' && req.method === 'POST') {
       const now = Date.now();
