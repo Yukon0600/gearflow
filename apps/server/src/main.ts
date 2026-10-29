@@ -84,6 +84,7 @@ class InventoryController {
     return store.savePartner({ ...existing, ...body }, id);
   }
   @Post('drafts') draft(@Body() body:any) { return store.saveDraft(body); }
+  @Get('drafts') draftsList() { return store.drafts(); }
   @Patch('drafts/:id') updateDraft(@Param('id') id:string,@Body() body:any) { return store.saveDraft(body,id); }
   @Post('drafts/:id/post') postDraft(@Param('id') id:string) { return store.postDraft(id); }
   @Post('stocktakes') stocktake(@Body() body:any) { return store.createStocktake(body); }

@@ -127,6 +127,7 @@ onMounted(load)
    <nav><button v-for="n in navVisible" :key="n.id" :title="n.label" :aria-label="n.label" :class="{active:page===n.id}" @click="navigate(n.id)"><component :is="n.icon" :size="18"/><span>{{n.label}}</span><span v-if="n.id==='inventory'" class="nav-count">{{data.products.length}}</span></button></nav>
    <div class="sidebar-note"><span class="tiny-square"></span> 从一件配件，到每一笔生意。<div class="wire-cube"><Boxes :size="58" stroke-width=".7"/></div></div>
    <div class="sidebar-foot"><span :class="['connection',{online:connection}]"></span>{{connection?'服务器已连接':'服务器未连接'}}<small>LOCAL</small></div>
+    <a class="beian" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">粤ICP备2026167701号</a>
   </aside>
   </template>
   <template #header>

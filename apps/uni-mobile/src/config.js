@@ -6,7 +6,10 @@
 // __API_BASE__ 是构建期常量（见 vite.config.js），默认空字符串，用于本地 H5 联调：
 //   $env:VITE_API_BASE='http://127.0.0.1:3992'; npm run build:h5
 // 这里刻意不用 import.meta.env —— 小程序端没有该对象，运行时会直接报错白屏。
-const FALLBACK_BASE = 'https://182.92.126.12';
+// 开发期临时走 HTTP（服务器 80 端口已验证可用）：
+//   手机端需开「开发调试」模式（vConsole）才允许 HTTP 请求，正式用户不受影响。
+// 域名备案通过后改回：const FALLBACK_BASE = 'https://timomo.store';（证书已就绪）
+const FALLBACK_BASE = 'https://timomo.store';
 
 export const BASE_URL = __API_BASE__ || FALLBACK_BASE;
 

@@ -56,10 +56,20 @@
         </view>
       </view>
 
+      <!-- 待审批提醒 -->
+      <view v-if="showPendingTip" class="pending-tip" @click="goOrders">
+        <view class="pending-dot" />
+        <text class="pending-text">有 {{ pendingTotal > 99 ? '99+' : pendingTotal }} 张单据待审批</text>
+        <text class="pending-go">去处理 ›</text>
+      </view>
+
       <!-- 功能入口 -->
       <view class="grid">
         <view v-for="g in entries" :key="g.key" class="grid-item" @click="g.action()">
-          <view class="grid-icon" :style="{ background: g.bg, color: g.color }">{{ g.icon }}</view>
+          <view class="grid-icon" :style="{ background: g.bg, color: g.color }">
+            {{ g.icon }}
+            <view v-if="g.key === 'orders' && pendingTotal > 0" class="grid-badge">{{ pendingTotal > 99 ? '99+' : pendingTotal }}</view>
+          </view>
           <text class="grid-text">{{ g.label }}</text>
         </view>
       </view>
@@ -68,10 +78,14 @@
       <view class="section">
         <view class="section-head">
           <text class="section-title">库存预警</text>
-          <text class="section-more" @click="goStock">
-            {{ summary.lowCount > 0 ? '共 ' + summary.lowCount + ' 项 ›' : '全部正常' }}
-          </text>
+          <view class="section-actions">
+            <text v-if="summary.lowCount > 0" class="section-btn" @click="restock">一键生成采购单</text>
+            <text class="section-more" @click="goStock">
+              {{ summary.lowCount > 0 ? '共 ' + summary.lowCount + ' 项 ›' : '全部正常' }}
+            </text>
+          </view>
         </view>
+        <text class="restock-hint" @click="restock">补货建议已按安全库存两倍预填，可调整数量与进价</text>
 
         <view v-if="!summary.lowProducts.length" class="card empty-card">
           <text class="empty-icon">✓</text>
@@ -126,7 +140,7 @@
 <script setup>
 import { reactive, ref, computed } from 'vue';
 import { onShow, onPullDownRefresh } from '@dcloudio/uni-app';
-import { api, clearToken, thousands, timeAgo, MOVEMENT_LABEL } from '../../utils/api.js';
+import { api, clearToken, thousands, timeAgo, MOVEMENT_LABEL, canApproveRole } from '../../utils/api.js';
 
 const summary = reactive({
   productCount: 0,
@@ -141,6 +155,9 @@ const summary = reactive({
   updatedAt: '',
 });
 const error = ref('');
+const pendingTotal = ref(0);
+const showPendingTip = ref(false);
+const role = ref(uni.getStorageSync('gf_role') || '');
 
 const dateText = computed(() => {
   const d = new Date();
@@ -166,14 +183,28 @@ const notices = computed(() => {
   return list;
 });
 
-const entries = [
-  { key: 'in', icon: '入', label: '采购入库', bg: 'rgba(124,224,184,0.14)', color: '#7CE0B8', action: () => scan('in') },
-  { key: 'out', icon: '出', label: '销售出库', bg: 'rgba(255,180,84,0.16)', color: '#FFB454', action: () => scan('out') },
-  { key: 'scan', icon: '扫', label: '扫码查货', bg: 'rgba(124,108,240,0.18)', color: '#A99BFF', action: () => scan('') },
-  { key: 'stock', icon: '存', label: '库存清单', bg: 'rgba(74,168,240,0.16)', color: '#6FC3FF', action: () => goStock() },
-  { key: 'flow', icon: '流', label: '库存流水', bg: 'rgba(233,120,160,0.16)', color: '#F29BC0', action: () => goFlow() },
-  { key: 'mine', icon: '我', label: '我的', bg: 'rgba(255,255,255,0.08)', color: '#C9CEDA', action: () => goMine() },
-];
+const entries = computed(() => {
+  const base = [
+    { key: 'in', icon: '入', label: '采购入库', bg: 'rgba(124,224,184,0.14)', color: '#7CE0B8', action: () => scan('in') },
+    { key: 'out', icon: '出', label: '销售出库', bg: 'rgba(255,180,84,0.16)', color: '#FFB454', action: () => scan('out') },
+    { key: 'scan', icon: '扫', label: '扫码查货', bg: 'rgba(124,108,240,0.18)', color: '#A99BFF', action: () => scan('') },
+    { key: 'stock', icon: '存', label: '库存清单', bg: 'rgba(74,168,240,0.16)', color: '#6FC3FF', action: () => goStock() },
+    { key: 'flow', icon: '流', label: '库存流水', bg: 'rgba(233,120,160,0.16)', color: '#F29BC0', action: () => goFlow() },
+    { key: 'orders', icon: '单', label: '单据中心', bg: 'rgba(124,108,240,0.18)', color: '#A99BFF', action: () => goOrders() },
+    { key: 'create', icon: '开', label: '快捷开单', bg: 'rgba(255,138,138,0.14)', color: '#FF8A8A', action: () => goOrder() },
+  ];
+  const extended = [
+    ...base,
+    { key: 'stocktake', icon: '盘', label: '库存盘点', bg: 'rgba(124,224,184,0.14)', color: '#7CE0B8', action: () => goStocktake() },
+    { key: 'drafts', icon: '稿', label: '草稿箱', bg: 'rgba(255,255,255,0.08)', color: '#C9CEDA', action: () => goDrafts() },
+    { key: 'partners', icon: '账', label: '应收应付', bg: 'rgba(255,180,84,0.16)', color: '#FFB454', action: () => goPartners() },
+  ];
+  // 经营报表仅店长/管理员可见
+  if (role.value === 'manager' || role.value === 'admin') {
+    extended.push({ key: 'reports', icon: '报', label: '经营速览', bg: 'rgba(74,168,240,0.16)', color: '#6FC3FF', action: () => goReports() });
+  }
+  return extended;
+});
 
 function labelOf(type) {
   return MOVEMENT_LABEL[type] || type;
@@ -184,6 +215,7 @@ async function load() {
   try {
     const data = await api.summary();
     Object.assign(summary, data);
+    await refreshPending();
   } catch (e) {
     error.value = e.message || '加载失败';
     if (String(error.value).includes('登录')) {
@@ -193,11 +225,24 @@ async function load() {
   }
 }
 
+/** 待审批单据数：店长/管理员可见提醒，店员也能看到进度 */
+async function refreshPending() {
+  try {
+    const res = await api.orders({ page: 1, size: 1, status: 'pending' });
+    pendingTotal.value = Number(res.total || 0);
+    showPendingTip.value = pendingTotal.value > 0 && canApproveRole();
+  } catch (e) {
+    pendingTotal.value = 0;
+    showPendingTip.value = false;
+  }
+}
+
 onShow(() => {
   if (!uni.getStorageSync('gf_token')) {
     uni.reLaunch({ url: '/pages/login/login' });
     return;
   }
+  role.value = uni.getStorageSync('gf_role') || '';
   load();
 });
 
@@ -216,6 +261,44 @@ function goFlow() {
 
 function goMine() {
   uni.switchTab({ url: '/pages/mine/mine' });
+}
+
+function goOrders() {
+  uni.navigateTo({ url: '/pages/orders/orders' });
+}
+
+function goOrder() {
+  uni.navigateTo({ url: '/pages/order/order' });
+}
+
+function goStocktake() {
+  uni.navigateTo({ url: '/pages/stocktake/stocktake' });
+}
+
+function goDrafts() {
+  uni.navigateTo({ url: '/pages/drafts/drafts' });
+}
+
+function goPartners() {
+  uni.navigateTo({ url: '/pages/partners/partners' });
+}
+
+function goReports() {
+  uni.navigateTo({ url: '/pages/reports/reports' });
+}
+
+/** 低库存一键补货：把预警商品预填进采购入库单 */
+function restock() {
+  if (!summary.lowProducts.length) {
+    uni.showToast({ title: '库存都很充足', icon: 'none' });
+    return;
+  }
+  const prefill = summary.lowProducts.map((p) => ({
+    productId: p.id,
+    quantity: Math.max(Number(p.suggest) || 1, 1),
+  }));
+  uni.setStorageSync('gf_restock_prefill', JSON.stringify(prefill));
+  uni.navigateTo({ url: '/pages/order/order?prefill=restock' });
 }
 
 function scan(type) {
@@ -394,6 +477,38 @@ function scan(type) {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* 待审批提醒条 */
+.pending-tip {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-bottom: 20rpx;
+  padding: 18rpx 24rpx;
+  background: rgba(255, 180, 84, 0.1);
+  border: 1px solid rgba(255, 180, 84, 0.28);
+  border-radius: 18rpx;
+}
+
+.pending-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 999rpx;
+  background: #ffb454;
+  flex-shrink: 0;
+}
+
+.pending-text {
+  flex: 1;
+  font-size: 24rpx;
+  color: #ffc98a;
+}
+
+.pending-go {
+  font-size: 24rpx;
+  color: #ffb454;
+  font-weight: 600;
+}
+
 /* 功能宫格 */
 .grid {
   display: flex;
@@ -415,6 +530,7 @@ function scan(type) {
 }
 
 .grid-icon {
+  position: relative;
   width: 84rpx;
   height: 84rpx;
   border-radius: 26rpx;
@@ -423,6 +539,24 @@ function scan(type) {
   justify-content: center;
   font-size: 34rpx;
   font-weight: 600;
+}
+
+.grid-badge {
+  position: absolute;
+  top: -10rpx;
+  right: -14rpx;
+  min-width: 30rpx;
+  height: 30rpx;
+  padding: 0 8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rpx;
+  font-size: 18rpx;
+  font-weight: 400;
+  color: #fff;
+  background: #ff5c5c;
+  box-sizing: border-box;
 }
 
 .grid-text {
@@ -440,6 +574,29 @@ function scan(type) {
   align-items: center;
   justify-content: space-between;
   margin: 0 6rpx 18rpx;
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.section-btn {
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #7ce0b8;
+  background: rgba(124, 224, 184, 0.14);
+  border: 1px solid rgba(124, 224, 184, 0.3);
+}
+
+.restock-hint {
+  display: block;
+  margin: -6rpx 6rpx 14rpx;
+  font-size: 19rpx;
+  color: #4d5262;
 }
 
 .section-title {

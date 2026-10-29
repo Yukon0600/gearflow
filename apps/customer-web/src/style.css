@@ -112,3 +112,8 @@ button{cursor:pointer}
 button:disabled{cursor:not-allowed}
 /* 给右下角帮助按钮留出空间，避免挡住最后一行操作 */
 .content{padding-bottom:64px}
+
+/* 备案号：需在页面底部展示并链接工信部 */
+.beian{display:inline-block;margin-top:8px;font-size:10px;color:#6b7280;text-decoration:none;letter-spacing:.2px}
+.beian:hover{color:#9aa4bb;text-decoration:underline}
+.login-footer .beian{margin:0 0 0 14px}

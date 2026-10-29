@@ -4,7 +4,7 @@
       <view class="avatar">A</view>
       <view class="who">
         <view class="who-name">{{ user.username || 'admin' }}</view>
-        <view class="who-role">系统管理员</view>
+        <view class="who-role">{{ roleText }}</view>
       </view>
     </view>
 
@@ -38,10 +38,18 @@
 
     <view class="foot">GearFlow · 进销存管理</view>
   </view>
-</template>
+
+    <view class="beian-wrap">
+      <text class="beian" @click="openBeian">粤ICP备2026167701号</text>
+    </view></template>
 
 <script setup>
-import { ref } from 'vue';
+function openBeian() {
+  // 小程序不能直接打开外部浏览器，复制链接提示用户
+  uni.setClipboardData({ data: 'https://beian.miit.gov.cn/', showToast: false });
+  uni.showToast({ title: '已复制工信部备案查询地址', icon: 'none' });
+}
+import { computed, ref } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 import { api, clearToken, getToken } from '../../utils/api.js';
 import { BASE_URL } from '../../config.js';
@@ -50,6 +58,9 @@ const user = ref({ username: '' });
 const online = ref(false);
 const lastCheck = ref('');
 const baseUrl = BASE_URL;
+
+const ROLE_TEXT = { clerk: '店员', manager: '店长', admin: '系统管理员' };
+const roleText = computed(() => ROLE_TEXT[user.value.role] || '店员');
 
 const platformText = ref('小程序');
 
@@ -71,6 +82,8 @@ async function refresh() {
   try {
     const me = await api.me();
     user.value = me.user || { username: 'admin' };
+    // 同步最新角色，保证单据审批按钮的显示与权限一致
+    uni.setStorageSync('gf_role', (me.user && me.user.role) || '');
     online.value = true;
     const d = new Date();
     lastCheck.value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -87,6 +100,7 @@ function logout() {
     success: (res) => {
       if (!res.confirm) return;
       clearToken();
+      uni.removeStorageSync('gf_role'); // 角色随登录态一起清掉
       uni.reLaunch({ url: '/pages/login/login' });
     },
   });
@@ -189,4 +203,6 @@ function logout() {
   font-size: 20rpx;
   color: #4d5262;
 }
+.beian-wrap{padding:32rpx 0 48rpx;text-align:center}
+.beian{font-size:20rpx;color:#5f6577}
 </style>

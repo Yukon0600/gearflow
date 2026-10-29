@@ -75,7 +75,8 @@ onLoad(async () => {
   // 已登录直接进工作台
   if (getToken()) {
     try {
-      await api.me();
+      const me = await api.me();
+      uni.setStorageSync('gf_role', (me.user && me.user.role) || '');
       uni.switchTab({ url: '/pages/index/index' });
       return;
     } catch (e) {
@@ -100,6 +101,8 @@ async function submit() {
   try {
     const res = await api.login(u, password.value);
     setToken(res.token);
+    // 存角色：单据审批按钮只对店长/管理员可见
+    uni.setStorageSync('gf_role', (res.user && res.user.role) || '');
     if (remember.value) {
       uni.setStorageSync(REMEMBER_KEY, JSON.stringify({ username: u, password: password.value, remember: true }));
     } else {

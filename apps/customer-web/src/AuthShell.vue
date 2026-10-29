@@ -65,6 +65,6 @@ function expired() { user.value = null; password.value = ''; error.value = '登�
         <div class="login-footnote"><LockKeyhole :size="13"/>登录状态有效期 8 小时</div>
       </section>
     </main>
-    <footer class="login-footer"><span>GEARFLOW · 电脑配件进销存</span><span>让库存有序，让经营有数。</span></footer>
+    <footer class="login-footer"><span>GEARFLOW · 电脑配件进销存</span><span>让库存有序，让经营有数。</span><a class="beian" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">粤ICP备2026167701号</a></footer>
   </div>
 </template>

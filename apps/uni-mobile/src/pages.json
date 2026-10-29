@@ -30,6 +30,45 @@
       }
     },
     {
+      "path": "pages/orders/orders",
+      "style": {
+        "navigationBarTitleText": "单据中心",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/order-detail/order-detail",
+      "style": { "navigationBarTitleText": "单据详情" }
+    },
+    {
+      "path": "pages/stocktake/stocktake",
+      "style": {
+        "navigationBarTitleText": "库存盘点",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/partners/partners",
+      "style": {
+        "navigationBarTitleText": "应收应付",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/drafts/drafts",
+      "style": {
+        "navigationBarTitleText": "草稿箱",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/reports/reports",
+      "style": {
+        "navigationBarTitleText": "经营速览",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/mine/mine",
       "style": { "navigationBarTitleText": "我的" }
     },

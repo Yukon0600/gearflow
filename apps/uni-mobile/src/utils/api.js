@@ -51,6 +51,35 @@ export const api = {
   product: (id) => request(`/api/mobile/product/${id}`),
   movements: (limit = 50) => request(`/api/mobile/movements?limit=${limit}`),
   createOrder: (payload) => request('/api/orders', { method: 'POST', data: payload }),
+  /** 单据分页：{ page, size, status: pending|posted|rejected|all, q: 单号/往来单位 } */
+  orders: (params = {}) => {
+    const qs = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join('&');
+    return request(`/api/orders${qs ? `?${qs}` : ''}`);
+  },
+  approveOrder: (id) => request(`/api/orders/${id}/approve`, { method: 'POST' }),
+  rejectOrder: (id, reason) => request(`/api/orders/${id}/reject`, { method: 'POST', data: { reason } }),
+  // 盘点：lines = [{ productId, expected, actual }]，库存有变动会被服务端拒绝
+  stocktake: (payload) => request('/api/stocktakes', { method: 'POST', data: payload }),
+  // 草稿：仅支持 purchase / sale
+  drafts: () => request('/api/drafts'),
+  saveDraft: (payload) => request('/api/drafts', { method: 'POST', data: payload }),
+  updateDraft: (id, payload) => request(`/api/drafts/${id}`, { method: 'PATCH', data: payload }),
+  postDraft: (id) => request(`/api/drafts/${id}/post`, { method: 'POST' }),
+  // 应收应付：direction in=收款 / out=付款，amount 为正整数（分）
+  reconcile: () => request('/api/reconcile'),
+  payments: (params = {}) => {
+    const qs = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join('&');
+    return request(`/api/payments${qs ? `?${qs}` : ''}`);
+  },
+  createPayment: (payload) => request('/api/payments', { method: 'POST', data: payload }),
+  // 经营报表：days = 1~365
+  report: (days = 30) => request(`/api/reports/overview?days=${days}`),
 };
 
 /** 分转元，保留两位 */
@@ -86,3 +115,16 @@ export const MOVEMENT_LABEL = {
   stocktake: '盘点调整',
   opening: '期初建账',
 };
+
+/** 单据状态文案 */
+export const ORDER_STATUS_LABEL = {
+  pending: '待审批',
+  posted: '已生效',
+  rejected: '已驳回',
+};
+
+/** 店长及以上才能审批 */
+export function canApproveRole() {
+  const role = uni.getStorageSync('gf_role');
+  return role === 'manager' || role === 'admin';
+}

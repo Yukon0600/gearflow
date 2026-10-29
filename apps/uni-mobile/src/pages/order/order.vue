@@ -1,14 +1,37 @@
 <template>
   <view class="page order-page">
-    <view class="switch">
-      <view class="seg" :class="{ active: type === 'in' }" @click="type = 'in'">入库</view>
-      <view class="seg" :class="{ active: type === 'out' }" @click="type = 'out'">出库</view>
+    <!-- 类型选择：入库类两个 + 出库类三个 -->
+    <view class="type-groups">
+      <view class="type-group">
+        <text class="group-label">入库</text>
+        <view class="group-chips">
+          <view
+            v-for="t in inboundTypes"
+            :key="t.key"
+            class="chip"
+            :class="{ active: type === t.key, inbound: type === t.key }"
+            @click="type = t.key"
+          >{{ t.label }}</view>
+        </view>
+      </view>
+      <view class="type-group">
+        <text class="group-label">出库</text>
+        <view class="group-chips">
+          <view
+            v-for="t in outboundTypes"
+            :key="t.key"
+            class="chip"
+            :class="{ active: type === t.key, outbound: type === t.key }"
+            @click="type = t.key"
+          >{{ t.label }}</view>
+        </view>
+      </view>
     </view>
 
     <view class="card head">
       <view class="head-row">
-        <text class="head-label">{{ type === 'in' ? '供应商' : '客户' }}</text>
-        <input v-model="partner" class="head-input" placeholder="选填" placeholder-class="ph" maxlength="120" />
+        <text class="head-label">{{ partnerLabel }}</text>
+        <input v-model="partner" class="head-input" :placeholder="type === 'scrap' ? '默认内部损耗' : '选填'" placeholder-class="ph" maxlength="120" />
       </view>
       <view class="head-row last">
         <text class="head-label">备注</text>
@@ -52,7 +75,7 @@
           <text class="line-total">¥{{ lineTotal(line) }}</text>
         </view>
 
-        <view v-if="type === 'out' && line.quantity > line.stock" class="line-warn">超出可用库存 {{ line.stock }} 件</view>
+        <view v-if="!isInbound && line.quantity > line.stock" class="line-warn">超出可用库存 {{ line.stock }} 件</view>
       </view>
     </view>
 
@@ -65,9 +88,19 @@
       </view>
     </view>
 
-    <button class="btn submit" :disabled="busy || !lines.length" @click="submit">
-      {{ busy ? '提交中…' : (type === 'in' ? '确认入库' : '确认出库') }}
-    </button>
+    <view class="btn-row">
+      <button
+        v-if="canDraft"
+        class="btn draft"
+        :disabled="busy || !lines.length"
+        @click="saveAsDraft"
+      >{{ draftBusy ? '保存中…' : (draftId ? '更新草稿' : '存草稿') }}</button>
+      <button class="btn submit flex" :disabled="busy || !lines.length" @click="submit">
+        {{ busy ? '提交中…' : `确认${typeConfig.label}` }}
+      </button>
+    </view>
+
+    <view v-if="draftId" class="draft-tip">正在编辑草稿，提交开单后草稿仍会保留供核对</view>
 
     <view v-if="picker" class="picker-mask" @click="picker = false">
       <view class="picker" @click.stop>
@@ -100,7 +133,25 @@ import { onLoad } from '@dcloudio/uni-app';
 import { api, yuan } from '../../utils/api.js';
 import { STORAGE_PRODUCTS } from '../../config.js';
 
-const type = ref('in');
+/** 五种单据类型：与服务端 ORDER_TYPES / INBOUND_TYPES 对应 */
+const TYPE_CONFIG = {
+  purchase: { label: '采购入库', partner: '供应商', inbound: true },
+  sale: { label: '销售出库', partner: '客户', inbound: false },
+  return_in: { label: '销售退货', partner: '客户', inbound: true },
+  return_out: { label: '采购退货', partner: '供应商', inbound: false },
+  scrap: { label: '报损', partner: '损耗', inbound: false },
+};
+const inboundTypes = [
+  { key: 'purchase', label: TYPE_CONFIG.purchase.label },
+  { key: 'return_in', label: TYPE_CONFIG.return_in.label },
+];
+const outboundTypes = [
+  { key: 'sale', label: TYPE_CONFIG.sale.label },
+  { key: 'return_out', label: TYPE_CONFIG.return_out.label },
+  { key: 'scrap', label: TYPE_CONFIG.scrap.label },
+];
+
+const type = ref('purchase');
 const partner = ref('');
 const note = ref('');
 const lines = ref([]);
@@ -109,6 +160,14 @@ const error = ref('');
 const picker = ref(false);
 const keyword = ref('');
 const products = ref([]);
+const draftId = ref('');
+const draftBusy = ref(false);
+
+const canDraft = computed(() => type.value === 'purchase' || type.value === 'sale');
+
+const typeConfig = computed(() => TYPE_CONFIG[type.value] || TYPE_CONFIG.purchase);
+const isInbound = computed(() => typeConfig.value.inbound);
+const partnerLabel = computed(() => typeConfig.value.partner);
 
 const selectedIds = computed(() => new Set(lines.value.map((l) => l.productId)));
 
@@ -174,25 +233,128 @@ function onPrice(index, event) {
   lines.value[index].price = event.detail.value;
 }
 
+function pushLine(p) {
+  // 入参 price/unitPrice 均为分，统一转成元显示
+  const fen = p.unitPrice !== undefined ? p.unitPrice : p.price;
+  lines.value.push({
+    key: `${p.id}-${Date.now()}-${lines.value.length}`,
+    productId: p.id,
+    name: p.name,
+    sku: p.sku,
+    stock: p.stock,
+    quantity: Number(p.quantity) || 1,
+    price: yuan(fen),
+  });
+}
+
+function applyDraft(id, payload) {
+  draftId.value = id || '';
+  if (payload.type && TYPE_CONFIG[payload.type]) type.value = payload.type;
+  partner.value = payload.partner || '';
+  note.value = payload.note || '';
+  lines.value = [];
+  for (const l of payload.lines || []) {
+    const hit = products.value.find((p) => String(p.id) === String(l.productId));
+    if (hit) {
+      pushLine({ ...hit, quantity: Number(l.quantity) || 1, price: yuan(l.unitPrice) });
+    }
+  }
+}
+
 onLoad((query) => {
-  type.value = query && query.type === 'out' ? 'out' : 'in';
+  // 兼容旧参数 in/out（扫码、详情页跳转），也支持直接传类型 key
+  const t = query && query.type;
+  if (t && TYPE_CONFIG[t]) {
+    type.value = t;
+  } else if (t === 'out') {
+    type.value = 'sale';
+  } else {
+    type.value = 'purchase';
+  }
   products.value = JSON.parse(uni.getStorageSync(STORAGE_PRODUCTS) || '[]');
 
   if (query && query.productId) {
     const hit = products.value.find((p) => String(p.id) === String(query.productId));
     if (hit) {
-      lines.value.push({
-        key: `${hit.id}-init`,
-        productId: hit.id,
-        name: hit.name,
-        sku: hit.sku,
-        stock: hit.stock,
-        quantity: 1,
-        price: yuan(hit.price),
-      });
+      pushLine(hit);
+    }
+  }
+
+  // 低库存一键补货：工作台预警区预填（数量=建议补货数，零售价预填待改）
+  if (query && query.prefill === 'restock') {
+    try {
+      const restock = JSON.parse(uni.getStorageSync('gf_restock_prefill') || '[]');
+      type.value = 'purchase';
+      for (const r of restock) {
+        const hit = products.value.find((p) => String(p.id) === String(r.productId));
+        if (hit) {
+          pushLine({ ...hit, quantity: Number(r.quantity) || 1 });
+        }
+      }
+      if (lines.value.length) {
+        setTimeout(() => uni.showToast({ title: '价格按零售价预填，请核对进价', icon: 'none', duration: 2200 }), 400);
+      }
+    } catch (e) {
+      // 预填数据损坏时忽略，正常开单
+    }
+  }
+
+  // 从草稿箱载入
+  if (query && query.draft) {
+    try {
+      const saved = JSON.parse(uni.getStorageSync('gf_draft_prefill') || 'null');
+      if (saved && saved.id === query.draft) {
+        applyDraft(saved.id, saved.payload);
+      }
+    } catch (e) {
+      // 草稿缓存缺失时忽略
     }
   }
 });
+
+function payload() {
+  return {
+    type: type.value,
+    // 报损不填时服务端默认写「内部损耗」；其余类型用类型对应的缺省称谓
+    partner:
+      type.value === 'scrap'
+        ? partner.value.trim()
+        : partner.value.trim() || partnerLabel.value,
+    note: note.value.trim(),
+    lines: lines.value.map((l) => ({
+      productId: l.productId,
+      quantity: Number(l.quantity),
+      unitPrice: Math.round(Number(l.price) * 100),
+    })),
+  };
+}
+
+async function saveAsDraft() {
+  error.value = '';
+  if (!lines.value.length) return;
+  for (const line of lines.value) {
+    const qty = Number(line.quantity);
+    if (!qty || qty < 1) {
+      error.value = `${line.name} 的数量至少为 1`;
+      return;
+    }
+  }
+  draftBusy.value = true;
+  try {
+    if (draftId.value) {
+      await api.updateDraft(draftId.value, payload());
+      uni.showToast({ title: '草稿已更新', icon: 'success' });
+    } else {
+      const res = await api.saveDraft(payload());
+      draftId.value = res.id;
+      uni.showToast({ title: '已存草稿', icon: 'success' });
+    }
+  } catch (e) {
+    error.value = e.message || '存草稿失败';
+  } finally {
+    draftBusy.value = false;
+  }
+}
 
 async function submit() {
   error.value = '';
@@ -211,7 +373,7 @@ async function submit() {
       error.value = `${line.name} 的单价不正确`;
       return;
     }
-    if (type.value === 'out' && qty > line.stock) {
+    if (!isInbound.value && qty > line.stock) {
       error.value = `${line.name} 库存不足，当前可用 ${line.stock} 件`;
       return;
     }
@@ -219,20 +381,16 @@ async function submit() {
 
   busy.value = true;
   try {
-    await api.createOrder({
-      type: type.value === 'in' ? 'purchase' : 'sale',
-      partner: partner.value.trim() || (type.value === 'in' ? '供应商' : '客户'),
-      note: note.value.trim(),
-      lines: lines.value.map((l) => ({
-        productId: l.productId,
-        quantity: Number(l.quantity),
-        unitPrice: Math.round(Number(l.price) * 100),
-      })),
-    });
-    uni.showToast({ title: type.value === 'in' ? '入库成功' : '出库成功', icon: 'success' });
+    const res = await api.createOrder(payload());
+    // 店员提交的单据进入待审批，店长/管理员提交直接生效
+    if (res && res.status === 'pending') {
+      uni.showToast({ title: '已提交，待店长审批', icon: 'none', duration: 2000 });
+    } else {
+      uni.showToast({ title: `${typeConfig.value.label}成功`, icon: 'success' });
+    }
     setTimeout(() => {
       uni.switchTab({ url: '/pages/stock/stock' });
-    }, 800);
+    }, 900);
   } catch (e) {
     error.value = e.message || '提交失败';
   } finally {
@@ -246,29 +404,61 @@ async function submit() {
   padding-bottom: calc(60rpx + env(safe-area-inset-bottom));
 }
 
-.switch {
+/* 类型分组选择 */
+.type-groups {
   display: flex;
-  padding: 6rpx;
+  flex-direction: column;
+  gap: 14rpx;
+  padding: 18rpx 22rpx;
   margin-bottom: 20rpx;
   background: #15181f;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 18rpx;
 }
 
-.seg {
+.type-group {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.group-label {
+  width: 64rpx;
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: #6b7080;
+}
+
+.group-chips {
   flex: 1;
-  height: 72rpx;
+  display: flex;
+  gap: 12rpx;
+}
+
+.chip {
+  flex: 1;
+  height: 60rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 14rpx;
-  font-size: 28rpx;
+  font-size: 23rpx;
   color: #8b90a0;
+  background: #1b1e26;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.seg.active {
+.chip.active.inbound {
+  color: #0d281e;
+  background: linear-gradient(135deg, #7ce0b8, #4ad0f0);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.chip.active.outbound {
   color: #fff;
   background: linear-gradient(135deg, #7c6cf0, #4aa8f0);
+  border-color: transparent;
   font-weight: 600;
 }
 
@@ -488,6 +678,36 @@ async function submit() {
 
 .submit {
   margin-top: 24rpx;
+}
+
+.btn-row {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.btn-row .submit {
+  margin-top: 0;
+}
+
+.draft {
+  flex-shrink: 0;
+  width: 220rpx;
+  margin: 0;
+  color: #a99bff;
+  background: rgba(124, 108, 240, 0.14);
+  border: 1px solid rgba(124, 108, 240, 0.3);
+}
+
+.flex {
+  flex: 1;
+}
+
+.draft-tip {
+  margin-top: 14rpx;
+  text-align: center;
+  font-size: 20rpx;
+  color: #6b7080;
 }
 
 .picker-mask {
